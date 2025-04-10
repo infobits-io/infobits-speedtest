@@ -1,5 +1,5 @@
 # Variables
-IMAGE_NAME = ghcr.io/infobits-io/speedtest
+IMAGE_NAME = ghcr.io/infobits-io/infobits-speedtest
 VERSION = $(shell git describe --tags --always --dirty)
 DOCKER_BUILDKIT = 1
 

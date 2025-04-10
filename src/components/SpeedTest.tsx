@@ -96,7 +96,7 @@ const SpeedTest: React.FC = () => {
 	return (
 		<div className={styles.container}>
 			<div className={styles.card}>
-				<h1 className={styles.title}>NextJS Speed Test</h1>
+				<h1 className={styles.title}>Infobits Speed Test</h1>
 
 				<div className={styles.speedMeter}>
 					<div className={styles.gauge}>
@@ -177,7 +177,6 @@ const SpeedTest: React.FC = () => {
 			)}
 
 			<footer className={styles.footer}>
-				<p>Modern Speed Test built with Next.js and TypeScript</p>
 				<p>Measures download, upload, latency, and jitter</p>
 			</footer>
 		</div>

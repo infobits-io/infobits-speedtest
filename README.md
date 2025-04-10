@@ -1,4 +1,4 @@
-# InfoBits Speed Test
+# Infobits Speed Test
 
 A modern internet speed test application built with Next.js, TypeScript, and CSS modules.
 
