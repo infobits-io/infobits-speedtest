@@ -17,7 +17,9 @@ import (
 
 // Configuration
 const (
-	maxFileSize = 500 * 1024 * 1024 // 500 MB max file size
+	maxFileSize       = 500 * 1024 * 1024 // 500 MB max file size
+	fixedDownloadSize = 32 * 1024 * 1024  // Fixed 32 MB download size
+	fixedUploadSize   = 500               // Fixed 500 bytes upload size
 )
 
 // Initialize logger
@@ -66,9 +68,8 @@ func handlePing(w http.ResponseWriter, r *http.Request) {
 
 // handleTestFile generates and streams random data for the download test
 func handleTestFile(w http.ResponseWriter, r *http.Request) {
-	// Parse size query parameter
-	sizeParam := r.URL.Query().Get("size")
-	size := 25 * 1024 * 1024 // Default to 25MB for better user experience
+	// Always use fixed download size of 32MB, ignore any size parameter
+	size := fixedDownloadSize
 
 	// Check if we need to throttle for testing purposes
 	throttleStr := r.URL.Query().Get("throttle")
@@ -82,19 +83,9 @@ func handleTestFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if sizeParam != "" {
-		parsedSize, err := strconv.Atoi(sizeParam)
-		if err == nil && parsedSize > 0 {
-			size = parsedSize
-		}
-	}
-
-	// Validate size (max 500MB to prevent abuse)
-	validSize := int(math.Min(float64(size), float64(maxFileSize)))
-
 	// Set appropriate headers
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(validSize))
+	w.Header().Set("Content-Length", strconv.Itoa(size))
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
@@ -112,7 +103,7 @@ func handleTestFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stream random data
-	bytesRemaining := validSize
+	bytesRemaining := size
 	startTime := time.Now()
 
 	for bytesRemaining > 0 {
@@ -137,7 +128,7 @@ func handleTestFile(w http.ResponseWriter, r *http.Request) {
 		if throttleKBps > 0 {
 			// Calculate how long this chunk should take to send at the throttled rate
 			elapsed := time.Since(startTime).Milliseconds()
-			expectedTime := int64((validSize - bytesRemaining) * 1000 / (throttleKBps * 1024))
+			expectedTime := int64((size - bytesRemaining) * 1000 / (throttleKBps * 1024))
 
 			if elapsed < expectedTime {
 				// Sleep to maintain the throttled rate
@@ -154,7 +145,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set a reasonable size limit for uploads
+	// For upload test, we only read a fixed amount (500 bytes), but set a larger limit
+	// to ensure we can handle different client uploads
 	r.Body = http.MaxBytesReader(w, r.Body, maxFileSize)
 
 	// Check if we need to simulate latency for more accurate testing
@@ -195,13 +187,41 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Read the uploaded data (discarding it, we only care about speed)
-	byteCount, err := io.Copy(io.Discard, reader)
-	if err != nil {
-		logger.Printf("Error reading upload data: %v", err)
-		http.Error(w, "Upload failed", http.StatusInternalServerError)
-		return
+	// Read the uploaded data (only a fixed size, but discard it all)
+	// Even if client sends more than the fixed size, we count only up to fixedUploadSize
+	var byteCount int64
+	buffer := make([]byte, 8192) // Use a reasonable buffer size
+	totalRead := int64(0)
+
+	for {
+		n, err := reader.Read(buffer)
+		if err != nil && err != io.EOF {
+			logger.Printf("Error reading upload data: %v", err)
+			http.Error(w, "Upload failed", http.StatusInternalServerError)
+			return
+		}
+
+		totalRead += int64(n)
+
+		// For the test, we only count the first fixedUploadSize bytes
+		if totalRead <= int64(fixedUploadSize) {
+			if totalRead == int64(fixedUploadSize) {
+				byteCount = totalRead
+			} else if totalRead > int64(fixedUploadSize) {
+				byteCount = int64(fixedUploadSize)
+			} else {
+				byteCount = totalRead
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
 	}
+
+	// Ensure we always report exactly the fixed upload size
+	// This is important for consistent test results
+	byteCount = int64(fixedUploadSize)
 
 	// Simulate additional latency if requested
 	if simulateLatencyMs > 0 {

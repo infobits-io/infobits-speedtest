@@ -7,9 +7,11 @@ const MAX_SPEED_CLASS = 10000; // Upper bound for speed classification (10 Gbps)
 const CRYPTO_BLOCK_SIZE = 65536; // Maximum bytes for crypto.getRandomValues() (browser security limit)
 const WARMUP_DURATION = 5; // Seconds for warmup phase
 
-// Dynamic constants that adjust based on connection speed
-let downloadFileSize = 100 * 1024 * 1024; // Initial 100MB - will adjust based on speed detection
-let uploadChunkSize = 4 * 1024 * 1024; // Initial 4MB - will adjust based on speed detection
+// Fixed sizes as specified
+const DOWNLOAD_FILE_SIZE = 32 * 1024 * 1024; // Fixed 32 MB download size
+const UPLOAD_CHUNK_SIZE = 500; // Fixed 500 bytes upload size
+
+// Initial concurrency settings (can still adjust based on connection)
 let downloadConcurrency = 4; // Initial concurrent downloads
 let uploadConcurrency = 4; // Initial concurrent uploads
 let downloadBufferSize = 1 * 1024 * 1024; // 1MB download buffer size
@@ -172,11 +174,12 @@ async function probeConnectionSpeed(onProgress) {
 		// If speed is low, we don't need larger probes
 		if (smallProbeSpeed < 25) {
 			onProgress({ progress: 100, currentSpeed: smallProbeSpeed });
+			determineConnectionType(smallProbeSpeed);
 			return smallProbeSpeed;
 		}
 
 		// For faster connections, run a larger probe
-		const largeProbeSize = 10 * 1024 * 1024; // 10MB
+		const largeProbeSize = 5 * 1024 * 1024; // 5MB (reduced from 10MB)
 		onProgress({ progress: 50, currentSpeed: smallProbeSpeed });
 
 		const largeProbeSpeed = await runProbe(largeProbeSize);
@@ -184,7 +187,7 @@ async function probeConnectionSpeed(onProgress) {
 
 		// For very fast connections, run an extra large probe
 		if (largeProbeSpeed > 500) {
-			const xlProbeSize = 50 * 1024 * 1024; // 50MB
+			const xlProbeSize = 10 * 1024 * 1024; // 10MB (reduced from 50MB)
 			onProgress({ progress: 75, currentSpeed: largeProbeSpeed });
 
 			const xlProbeSpeed = await runProbe(xlProbeSize);
@@ -271,51 +274,33 @@ async function probeConnectionSpeed(onProgress) {
 
 // Adjust test parameters based on detected connection speed
 function adjustTestParameters(speedMbps) {
-	// Adjust based on connection type
+	// Concurrency adjustments only - file sizes are now fixed
 	if (connectionType === "slow") {
-		// Slow connections (<10 Mbps)
-		downloadFileSize = 5 * 1024 * 1024; // 5MB
-		uploadChunkSize = 512 * 1024; // 512KB
 		downloadConcurrency = 2;
 		uploadConcurrency = 2;
 		downloadBufferSize = 256 * 1024; // 256KB
 		speedCalculationMethod = "median";
 	} else if (connectionType === "moderate") {
-		// Moderate (10-50 Mbps)
-		downloadFileSize = 20 * 1024 * 1024; // 20MB
-		uploadChunkSize = 1 * 1024 * 1024; // 1MB
 		downloadConcurrency = 3;
 		uploadConcurrency = 3;
 		downloadBufferSize = 512 * 1024; // 512KB
 		speedCalculationMethod = "percentile";
 	} else if (connectionType === "fast") {
-		// Fast (50-300 Mbps)
-		downloadFileSize = 50 * 1024 * 1024; // 50MB
-		uploadChunkSize = 2 * 1024 * 1024; // 2MB
 		downloadConcurrency = 4;
 		uploadConcurrency = 4;
 		downloadBufferSize = 1 * 1024 * 1024; // 1MB
 		speedCalculationMethod = "percentile";
 	} else if (connectionType === "very-fast") {
-		// Very fast (300-1000 Mbps)
-		downloadFileSize = 100 * 1024 * 1024; // 100MB
-		uploadChunkSize = 4 * 1024 * 1024; // 4MB
 		downloadConcurrency = 6;
 		uploadConcurrency = 6;
 		downloadBufferSize = 2 * 1024 * 1024; // 2MB
 		speedCalculationMethod = "percentile";
 	} else if (connectionType === "ultra-fast") {
-		// Ultra-fast (1-2.5 Gbps)
-		downloadFileSize = 250 * 1024 * 1024; // 250MB
-		uploadChunkSize = 8 * 1024 * 1024; // 8MB
 		downloadConcurrency = 8;
 		uploadConcurrency = 8;
 		downloadBufferSize = 4 * 1024 * 1024; // 4MB
 		speedCalculationMethod = "max-sustained";
 	} else {
-		// Extreme-fast (2.5+ Gbps)
-		downloadFileSize = 500 * 1024 * 1024; // 500MB
-		uploadChunkSize = 16 * 1024 * 1024; // 16MB
 		downloadConcurrency = 12;
 		uploadConcurrency = 10;
 		downloadBufferSize = 8 * 1024 * 1024; // 8MB
@@ -323,11 +308,7 @@ function adjustTestParameters(speedMbps) {
 	}
 
 	console.log(
-		`Adjusted test parameters: downloadSize=${
-			downloadFileSize / 1024 / 1024
-		}MB, uploadChunk=${
-			uploadChunkSize / 1024 / 1024
-		}MB, concurrency=${downloadConcurrency}/${uploadConcurrency}, method=${speedCalculationMethod}`
+		`Adjusted test parameters: downloadSize=32MB, uploadChunk=500B, concurrency=${downloadConcurrency}/${uploadConcurrency}, method=${speedCalculationMethod}`
 	);
 }
 
@@ -460,7 +441,7 @@ async function measureLatency() {
 	return { latency, jitter };
 }
 
-// Optimized download speed test for high-speed connections
+// Optimized download speed test with fixed file size (32 MB)
 async function measureDownloadSpeed(onProgress) {
 	const isLocal =
 		window.location.hostname === "localhost" ||
@@ -476,9 +457,7 @@ async function measureDownloadSpeed(onProgress) {
 	}
 
 	console.log(
-		`Starting download test with concurrency: ${downloadConcurrency}, file size: ${
-			downloadFileSize / 1024 / 1024
-		}MB`
+		`Starting download test with concurrency: ${downloadConcurrency}, file size: 32MB`
 	);
 
 	// Reset state
@@ -615,8 +594,8 @@ async function measureDownloadSpeed(onProgress) {
 	// Function to start a single download stream
 	async function startDownloadStream(streamId) {
 		return new Promise((resolve, reject) => {
-			// Create unique URL to avoid caching
-			const url = `/testfile?size=${downloadFileSize}&stream=${streamId}&t=${Date.now()}`;
+			// Create unique URL to avoid caching - always use fixed size of 32 MB
+			const url = `/testfile?size=${DOWNLOAD_FILE_SIZE}&stream=${streamId}&t=${Date.now()}`;
 
 			const xhr = new XMLHttpRequest();
 			activeXhrs.push(xhr);
@@ -709,7 +688,7 @@ async function measureDownloadSpeed(onProgress) {
 	}
 }
 
-// Optimized upload speed test for high-speed connections
+// Optimized upload speed test with fixed chunk size (500 bytes)
 async function measureUploadSpeed(onProgress) {
 	const isLocal =
 		window.location.hostname === "localhost" ||
@@ -725,9 +704,7 @@ async function measureUploadSpeed(onProgress) {
 	}
 
 	console.log(
-		`Starting upload test with concurrency: ${uploadConcurrency}, chunk size: ${
-			uploadChunkSize / 1024 / 1024
-		}MB`
+		`Starting upload test with concurrency: ${uploadConcurrency}, chunk size: 500 bytes`
 	);
 
 	// Reset state
@@ -854,9 +831,7 @@ async function measureUploadSpeed(onProgress) {
 		// Calculate final speed
 		const finalSpeed = calculateFinalSpeed(uploadSpeeds, "upload");
 		console.log(`Upload test complete: ${finalSpeed.toFixed(2)} Mbps`);
-		console.log(
-			`Total uploaded: ${(totalUploaded / (1024 * 1024)).toFixed(2)} MB`
-		);
+		console.log(`Total uploaded: ${(totalUploaded / 1024).toFixed(2)} KB`);
 
 		// Final progress update
 		onProgress({ progress: 100, currentSpeed: finalSpeed });
@@ -875,7 +850,7 @@ async function measureUploadSpeed(onProgress) {
 		const chunks = [];
 
 		for (let i = 0; i < numChunks; i++) {
-			chunks.push(generateRandomData(uploadChunkSize));
+			chunks.push(generateRandomData(UPLOAD_CHUNK_SIZE)); // Fixed 500 bytes
 
 			// Update progress for data generation
 			updateProgress({
@@ -1243,11 +1218,11 @@ function updateStatus(status, data) {
 			progressBarFill.style.backgroundColor = "#9ca3af"; // Gray
 			break;
 		case TestStatus.DOWNLOAD:
-			statusLabel.textContent = "Testing Download Speed...";
+			statusLabel.textContent = "Testing Download Speed (32 MB)...";
 			progressBarFill.style.backgroundColor = "#2563eb"; // Blue
 			break;
 		case TestStatus.UPLOAD:
-			statusLabel.textContent = "Testing Upload Speed...";
+			statusLabel.textContent = "Testing Upload Speed (500 bytes)...";
 			progressBarFill.style.backgroundColor = "#7c3aed"; // Purple
 			break;
 		case TestStatus.COMPLETE:
@@ -1327,9 +1302,7 @@ function showResults() {
 	console.log(
 		`Total downloaded: ${(totalDownloaded / (1024 * 1024)).toFixed(2)} MB`
 	);
-	console.log(
-		`Total uploaded: ${(totalUploaded / (1024 * 1024)).toFixed(2)} MB`
-	);
+	console.log(`Total uploaded: ${(totalUploaded / 1024).toFixed(2)} KB`);
 }
 
 // Helper function to format speed with appropriate units
