@@ -1,21 +1,15 @@
 // Constants
 const PING_TESTS = 25; // Number of ping tests
-const MIN_TEST_DURATION = 30; // Increased minimum test duration in seconds (from 15 to 30)
-const TARGET_DL_DURATION = 45; // Target download test duration (seconds)
-const TARGET_UL_DURATION = 45; // Target upload test duration (seconds)
+const MIN_TEST_DURATION = 30; // Minimum test duration in seconds
 const MEASUREMENT_INTERVAL = 100; // Milliseconds between measurements
 const MAX_SPEED_CLASS = 10000; // Upper bound for speed classification (10 Gbps)
 const CRYPTO_BLOCK_SIZE = 65536; // Maximum bytes for crypto.getRandomValues() (browser security limit)
-const WARMUP_DURATION = 5; // Seconds for warm-up phase
-const SPEED_AVG_WINDOW = 3; // Seconds to average speed over
 
 // Dynamic constants that adjust based on connection speed
 let downloadFileSize = 25 * 1024 * 1024; // Initial 25MB - will adjust based on speed detection
 let uploadChunkSize = 1 * 1024 * 1024; // Initial 1MB - will adjust based on speed detection
 let uploadConcurrency = 1; // Initial single stream - will adjust based on speed
 let downloadConcurrency = 1; // Initial single stream for download
-let downloadRequestCount = 0; // Count of download requests
-let uploadRequestCount = 0; // Count of upload requests
 
 // Test status enum
 const TestStatus = {
@@ -53,22 +47,14 @@ let testResult = {
 	jitter: 0,
 };
 let connectionType = "unknown"; // Will be set by probing
-let activeDownloadRequests = []; // Track active download XHR requests
-let activeUploadRequests = []; // Track active upload XHR requests
-let progressInterval = null; // Interval for updating progress
-let progressState = "init"; // Current progress state
-let progressValue = 0; // Current progress value
-let testStartTime = 0; // When the specific test started
-
-// Speed tracking variables
-let totalDownloaded = 0; // Total bytes downloaded
-let totalUploaded = 0; // Total bytes uploaded
-let downloadTimeOffset = 0; // Time offset for download test
-let uploadTimeOffset = 0; // Time offset for upload test
-let speedSamples = []; // Array for speed samples
-let lastDisplayedSpeed = 0; // Last speed displayed
-let lastSpeedUpdateTime = 0; // Last time speed was updated
-let speedWindow = []; // Sliding window for speed calculation
+let totalDownloaded = 0; // Track total bytes downloaded
+let totalUploaded = 0; // Track total bytes uploaded
+let testStartTime = 0; // When the test started
+let testEndTime = 0; // When the test should end
+let downloadSpeeds = []; // Array of download speeds
+let uploadSpeeds = []; // Array of upload speeds
+let activeRequestCount = 0; // Number of active requests
+let abortControllers = []; // For aborting fetch requests
 
 // Initialize the app
 function init() {
@@ -136,31 +122,19 @@ async function startTest() {
 function resetTestData() {
 	totalDownloaded = 0;
 	totalUploaded = 0;
-	downloadTimeOffset = 0;
-	uploadTimeOffset = 0;
-	speedSamples = [];
-	lastDisplayedSpeed = 0;
-	lastSpeedUpdateTime = 0;
-	speedWindow = [];
-	downloadRequestCount = 0;
-	uploadRequestCount = 0;
+	downloadSpeeds = [];
+	uploadSpeeds = [];
+	activeRequestCount = 0;
 
-	// Cancel any active requests
-	activeDownloadRequests.forEach((req) => {
-		if (req && req.abort) req.abort();
+	// Abort any ongoing requests
+	abortControllers.forEach((controller) => {
+		try {
+			if (controller && controller.abort) controller.abort();
+		} catch (e) {
+			console.warn("Error aborting fetch:", e);
+		}
 	});
-	activeUploadRequests.forEach((req) => {
-		if (req && req.abort) req.abort();
-	});
-
-	activeDownloadRequests = [];
-	activeUploadRequests = [];
-
-	// Clear progress interval
-	if (progressInterval) {
-		clearInterval(progressInterval);
-		progressInterval = null;
-	}
+	abortControllers = [];
 }
 
 // Generate a random array safely (respecting crypto API limits)
@@ -183,96 +157,21 @@ async function probeConnectionSpeed(onProgress) {
 	console.log("Probing connection speed...");
 
 	try {
-		// Multiple probes for better estimation
-		const probeResults = [];
-		const probeSize = 1 * 1024 * 1024; // 1MB
-		const smallProbeSize = 256 * 1024; // 256KB
-		const probeCount = 3; // Number of probes
+		// Test with a 1MB file first
+		const probeSize = 1 * 1024 * 1024;
+		const probeUrl = `/testfile?size=${probeSize}&t=${Date.now()}`;
 
-		// Start with a small probe to handle slow connections better
 		onProgress({ progress: 10, currentSpeed: 0 });
-		try {
-			const smallProbeSpeed = await runProbe(smallProbeSize);
-			if (smallProbeSpeed > 0) probeResults.push(smallProbeSpeed);
 
-			// If the connection is very slow, don't run larger probes
-			if (smallProbeSpeed < 5) {
-				console.log("Very slow connection detected, using small probe only");
-				onProgress({ progress: 100, currentSpeed: smallProbeSpeed });
-				return smallProbeSpeed;
-			}
-		} catch (e) {
-			console.warn("Small probe failed:", e);
-		}
+		const controller = new AbortController();
+		abortControllers.push(controller);
 
-		// Run main probes
-		for (let i = 0; i < probeCount; i++) {
-			onProgress({
-				progress: 20 + ((i + 1) / probeCount) * 80,
-				currentSpeed: 0,
-			});
-			try {
-				const speed = await runProbe(probeSize);
-				if (speed > 0) probeResults.push(speed);
-			} catch (e) {
-				console.warn(`Probe ${i + 1} failed:`, e);
-			}
-
-			// Small delay between probes
-			if (i < probeCount - 1) {
-				await new Promise((resolve) => setTimeout(resolve, 300));
-			}
-		}
-
-		// Calculate median speed from probes
-		let finalSpeed;
-		if (probeResults.length > 0) {
-			probeResults.sort((a, b) => a - b);
-			const midIndex = Math.floor(probeResults.length / 2);
-			finalSpeed =
-				probeResults.length % 2 === 0
-					? (probeResults[midIndex - 1] + probeResults[midIndex]) / 2
-					: probeResults[midIndex];
-		} else {
-			// Fallback if all probes failed
-			finalSpeed = 50;
-		}
-
-		console.log(`Connection probe speed: ${finalSpeed.toFixed(2)} Mbps`);
-		onProgress({ progress: 100, currentSpeed: finalSpeed });
-
-		// Determine connection type
-		if (finalSpeed < 10) {
-			connectionType = "slow";
-			console.log("Detected slow connection (<10 Mbps)");
-		} else if (finalSpeed < 50) {
-			connectionType = "moderate";
-			console.log("Detected moderate connection (10-50 Mbps)");
-		} else if (finalSpeed < 200) {
-			connectionType = "fast";
-			console.log("Detected fast connection (50-200 Mbps)");
-		} else if (finalSpeed < 750) {
-			connectionType = "very-fast";
-			console.log("Detected very fast connection (200-750 Mbps)");
-		} else {
-			connectionType = "ultra-fast";
-			console.log("Detected ultra-fast connection (750+ Mbps)");
-		}
-
-		return finalSpeed;
-	} catch (error) {
-		console.error("Connection probe failed:", error);
-		return 50; // Assume moderate speed
-	}
-
-	// Helper function to run a single probe
-	async function runProbe(size) {
-		const url = `/testfile?size=${size}&t=${Date.now()}-probe`;
 		const startTime = performance.now();
 
-		const response = await fetch(url);
+		const response = await fetch(probeUrl, { signal: controller.signal });
 		if (!response.ok) {
-			throw new Error(`Probe request failed: ${response.status}`);
+			console.warn("Probe request failed with status:", response.status);
+			return 50; // Default to moderate speed
 		}
 
 		const reader = response.body.getReader();
@@ -282,54 +181,84 @@ async function probeConnectionSpeed(onProgress) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			bytesReceived += value.length;
+
+			onProgress({
+				progress: 10 + (bytesReceived / probeSize) * 40,
+				currentSpeed: 0,
+			});
 		}
 
 		const endTime = performance.now();
 		const durationSeconds = (endTime - startTime) / 1000;
-		const speedMbps = (bytesReceived * 8) / (1024 * 1024) / durationSeconds;
 
+		// Calculate speed in Mbps
+		const speedMbps = (bytesReceived * 8) / (1024 * 1024) / durationSeconds;
 		console.log(
-			`Probe: ${speedMbps.toFixed(
+			`Probe speed: ${speedMbps.toFixed(2)} Mbps in ${durationSeconds.toFixed(
 				2
-			)} Mbps (${bytesReceived} bytes in ${durationSeconds.toFixed(2)}s)`
+			)}s`
 		);
+
+		onProgress({ progress: 100, currentSpeed: speedMbps });
+
+		// Determine connection type
+		if (speedMbps < 10) {
+			connectionType = "slow";
+			console.log("Detected slow connection (<10 Mbps)");
+		} else if (speedMbps < 50) {
+			connectionType = "moderate";
+			console.log("Detected moderate connection (10-50 Mbps)");
+		} else if (speedMbps < 200) {
+			connectionType = "fast";
+			console.log("Detected fast connection (50-200 Mbps)");
+		} else if (speedMbps < 750) {
+			connectionType = "very-fast";
+			console.log("Detected very fast connection (200-750 Mbps)");
+		} else {
+			connectionType = "ultra-fast";
+			console.log("Detected ultra-fast connection (750+ Mbps)");
+		}
+
 		return speedMbps;
+	} catch (error) {
+		console.error("Connection probe failed:", error);
+		return 50; // Assume moderate speed
 	}
 }
 
 // Adjust test parameters based on detected connection speed
 function adjustTestParameters(speedMbps) {
-	// Adjust based on connection type
+	// Adjust parameters based on connection type
 	if (connectionType === "slow") {
 		// Slow connections (<10 Mbps)
-		downloadFileSize = 5 * 1024 * 1024; // 5MB
-		uploadChunkSize = 256 * 1024; // 256KB
-		uploadConcurrency = 1; // Single stream
-		downloadConcurrency = 1; // Single stream
+		downloadFileSize = 8 * 1024 * 1024; // 8MB
+		uploadChunkSize = 512 * 1024; // 512KB
+		uploadConcurrency = 2; // Concurrent uploads
+		downloadConcurrency = 2; // Concurrent downloads
 	} else if (connectionType === "moderate") {
 		// Moderate (10-50 Mbps)
-		downloadFileSize = 15 * 1024 * 1024; // 15MB
-		uploadChunkSize = 512 * 1024; // 512KB
-		uploadConcurrency = 2; // Two streams
-		downloadConcurrency = 2; // Two streams
+		downloadFileSize = 20 * 1024 * 1024; // 20MB
+		uploadChunkSize = 1 * 1024 * 1024; // 1MB
+		uploadConcurrency = 3; // Concurrent uploads
+		downloadConcurrency = 3; // Concurrent downloads
 	} else if (connectionType === "fast") {
 		// Fast (50-200 Mbps)
-		downloadFileSize = 50 * 1024 * 1024; // 50MB
-		uploadChunkSize = 1 * 1024 * 1024; // 1MB
-		uploadConcurrency = 3; // Three streams
-		downloadConcurrency = 3; // Three streams
+		downloadFileSize = 40 * 1024 * 1024; // 40MB
+		uploadChunkSize = 2 * 1024 * 1024; // 2MB
+		uploadConcurrency = 4; // Concurrent uploads
+		downloadConcurrency = 4; // Concurrent downloads
 	} else if (connectionType === "very-fast") {
 		// Very fast (200-750 Mbps)
-		downloadFileSize = 100 * 1024 * 1024; // 100MB
-		uploadChunkSize = 2 * 1024 * 1024; // 2MB
-		uploadConcurrency = 4; // Four streams
-		downloadConcurrency = 4; // Four streams
+		downloadFileSize = 80 * 1024 * 1024; // 80MB
+		uploadChunkSize = 4 * 1024 * 1024; // 4MB
+		uploadConcurrency = 5; // Concurrent uploads
+		downloadConcurrency = 5; // Concurrent downloads
 	} else {
 		// Ultra-fast (750+ Mbps)
-		downloadFileSize = 250 * 1024 * 1024; // 250MB
-		uploadChunkSize = 4 * 1024 * 1024; // 4MB
-		uploadConcurrency = 6; // Six streams
-		downloadConcurrency = 6; // Six streams
+		downloadFileSize = 150 * 1024 * 1024; // 150MB
+		uploadChunkSize = 8 * 1024 * 1024; // 8MB
+		uploadConcurrency = 6; // Concurrent uploads
+		downloadConcurrency = 6; // Concurrent downloads
 	}
 
 	console.log(
@@ -337,11 +266,11 @@ function adjustTestParameters(speedMbps) {
 			downloadFileSize / 1024 / 1024
 		}MB, uploadChunk=${
 			uploadChunkSize / 1024 / 1024
-		}MB, downloadConcurrency=${downloadConcurrency}, uploadConcurrency=${uploadConcurrency}`
+		}MB, concurrency=${downloadConcurrency}/${uploadConcurrency}`
 	);
 }
 
-// Measure latency with improved statistics
+// Measure latency - works for all connection speeds
 async function measureLatency() {
 	const pingResults = [];
 	const jitterValues = [];
@@ -350,22 +279,18 @@ async function measureLatency() {
 	updateProgress({ progress: 0, currentSpeed: 0 });
 	console.log("Starting latency test");
 
-	// Setup progress tracking
-	startProgressTracking(PING_TESTS * 200); // Estimate total time for pings
-
 	// Do initial warm-up pings
-	const warmupCount = connectionType === "slow" ? 2 : 3;
+	const warmupCount = 3;
 	for (let i = 0; i < warmupCount; i++) {
 		try {
 			await fetch(`/ping?t=${Date.now()}-warmup-${i}`, { method: "GET" });
-			await new Promise((resolve) => setTimeout(resolve, 50));
 		} catch (e) {
-			console.warn("Warm-up ping failed, continuing");
+			console.warn("Warm-up ping failed, continuing with test");
 		}
 	}
 
 	// Actual ping tests
-	let lastPingValue = null;
+	let lastPing = null;
 
 	for (let i = 0; i < PING_TESTS; i++) {
 		try {
@@ -373,29 +298,25 @@ async function measureLatency() {
 			const response = await fetch(`/ping?t=${Date.now()}-${i}`, {
 				method: "GET",
 			});
-
-			if (!response.ok) {
-				console.warn(
-					`Ping test ${i + 1} failed with status: ${response.status}`
-				);
-				continue;
-			}
-
 			const endTime = performance.now();
-			const latencyValue = endTime - startTime;
 
-			pingResults.push(latencyValue);
+			if (response.ok) {
+				const latencyValue = endTime - startTime;
+				pingResults.push(latencyValue);
 
-			// Calculate jitter as variation between consecutive pings
-			if (lastPingValue !== null) {
-				const jitter = Math.abs(latencyValue - lastPingValue);
-				jitterValues.push(jitter);
+				// Calculate jitter (variation between consecutive pings)
+				if (lastPing !== null) {
+					const jitter = Math.abs(latencyValue - lastPing);
+					jitterValues.push(jitter);
+				}
+
+				lastPing = latencyValue;
+				console.log(
+					`Ping ${i + 1}/${PING_TESTS}: ${latencyValue.toFixed(2)}ms`
+				);
 			}
-
-			lastPingValue = latencyValue;
-			console.log(`Ping ${i + 1}/${PING_TESTS}: ${latencyValue.toFixed(2)}ms`);
 		} catch (error) {
-			console.error(`Ping test ${i + 1} failed:`, error);
+			console.error("Ping test failed:", error);
 		}
 
 		// Update progress
@@ -404,7 +325,7 @@ async function measureLatency() {
 			currentSpeed: 0,
 		});
 
-		// Adapt ping delay based on connection
+		// Delay between pings
 		const pingDelay =
 			connectionType === "slow"
 				? 300
@@ -414,51 +335,43 @@ async function measureLatency() {
 		await new Promise((resolve) => setTimeout(resolve, pingDelay));
 	}
 
-	// Stop progress tracking
-	stopProgressTracking();
-
-	// Calculate final latency and jitter with statistical methods
-	let latency, jitter;
+	// Calculate latency and jitter with statistical methods
+	let latency = 0,
+		jitter = 0;
 
 	if (pingResults.length >= 5) {
 		// Sort results for statistical processing
 		const sortedPings = [...pingResults].sort((a, b) => a - b);
 
-		// Remove outliers based on connection type
-		const outlierFactor =
-			connectionType === "ultra-fast" || connectionType === "very-fast"
-				? 0.2
-				: 0.1;
-		const cutoff = Math.floor(sortedPings.length * outlierFactor);
+		// Remove outliers (top and bottom 10%)
+		const cutoff = Math.floor(sortedPings.length * 0.1);
 		const trimmedPings = sortedPings.slice(cutoff, sortedPings.length - cutoff);
 
-		// Use median for more stable results
-		const mid = Math.floor(trimmedPings.length / 2);
+		// Use median for latency
+		const midIndex = Math.floor(trimmedPings.length / 2);
 		latency =
 			trimmedPings.length % 2 === 0
-				? (trimmedPings[mid - 1] + trimmedPings[mid]) / 2
-				: trimmedPings[mid];
+				? (trimmedPings[midIndex - 1] + trimmedPings[midIndex]) / 2
+				: trimmedPings[midIndex];
 
-		// Calculate jitter
-		if (jitterValues.length >= 3) {
+		// Calculate jitter as average deviation
+		if (jitterValues.length > 2) {
 			const sortedJitter = [...jitterValues].sort((a, b) => a - b);
-			const jitterCutoff = Math.floor(sortedJitter.length * 0.1); // Remove top/bottom 10%
+			const jitterCutoff = Math.floor(sortedJitter.length * 0.1);
 			const trimmedJitter = sortedJitter.slice(
 				jitterCutoff,
 				sortedJitter.length - jitterCutoff
 			);
 
-			// Use mean for jitter
 			jitter =
-				trimmedJitter.reduce((sum, val) => sum + val, 0) /
-				Math.max(1, trimmedJitter.length);
+				trimmedJitter.reduce((sum, val) => sum + val, 0) / trimmedJitter.length;
 		} else {
 			jitter =
 				jitterValues.reduce((sum, val) => sum + val, 0) /
 				Math.max(1, jitterValues.length);
 		}
 	} else {
-		// Not enough measurements, use simple averages
+		// Not enough measurements, use simple average
 		latency =
 			pingResults.length > 0
 				? pingResults.reduce((sum, ping) => sum + ping, 0) / pingResults.length
@@ -469,12 +382,11 @@ async function measureLatency() {
 				: 2;
 	}
 
-	// For local connections, ensure reasonable values
+	// For local connections, ensure reasonable minimum values
 	const isLocal =
 		window.location.hostname === "localhost" ||
 		window.location.hostname === "127.0.0.1";
 	if (isLocal && latency < 0.5) {
-		console.log("Adjusting latency for local connection");
 		latency = Math.max(latency, 0.5);
 		jitter = Math.max(jitter, 0.1);
 	}
@@ -487,7 +399,7 @@ async function measureLatency() {
 	return { latency, jitter };
 }
 
-// Measure download speed with longer tests and improved statistics
+// Measure download speed with balanced requests and proper duration
 async function measureDownloadSpeed(onProgress) {
 	const isLocal =
 		window.location.hostname === "localhost" ||
@@ -503,166 +415,171 @@ async function measureDownloadSpeed(onProgress) {
 	}
 
 	console.log(
-		`Starting download test with target duration: ${TARGET_DL_DURATION}s`
+		`Starting download test with file size: ${
+			downloadFileSize / 1024 / 1024
+		}MB, concurrency: ${downloadConcurrency}`
 	);
 
 	// Reset measurement state
-	resetSpeedMeasurement();
-	testStartTime = performance.now();
-	downloadTimeOffset = 0;
+	downloadSpeeds = [];
 	totalDownloaded = 0;
+	activeRequestCount = 0;
 
-	// Set up progress tracking with test duration
-	startProgressTracking(TARGET_DL_DURATION * 1000);
+	// Set timestamps for the test
+	testStartTime = performance.now();
+	testEndTime = testStartTime + MIN_TEST_DURATION * 1000;
 
 	try {
-		// Start multiple download streams
+		// Start download test with multiple concurrent requests
 		const downloadPromises = [];
+
+		// Initial batch of downloads
 		for (let i = 0; i < downloadConcurrency; i++) {
-			downloadPromises.push(startDownloadStream(i));
-
-			// Stagger the start of streams for better stability
-			if (i < downloadConcurrency - 1) {
-				await new Promise((resolve) => setTimeout(resolve, 200));
-			}
+			downloadPromises.push(startDownload(i));
 		}
 
-		// Wait for all streams to complete or timeout
-		await Promise.race([
-			Promise.all(downloadPromises),
-			new Promise((resolve) =>
-				setTimeout(resolve, TARGET_DL_DURATION * 1000 + 5000)
-			), // Extra 5s grace period
-		]);
+		// Create a timeout promise to ensure the test runs for minimum duration
+		const timeoutPromise = new Promise((resolve) => {
+			setTimeout(() => {
+				console.log(
+					`Download test minimum duration (${MIN_TEST_DURATION}s) reached`
+				);
+				resolve();
+			}, MIN_TEST_DURATION * 1000);
+		});
 
-		// After test completion or timeout, abort any remaining streams
-		for (let req of activeDownloadRequests) {
-			if (req && req.abort) req.abort();
-		}
+		// Wait for all downloads to complete and minimum time to pass
+		await Promise.all([Promise.all(downloadPromises), timeoutPromise]);
 
-		// Calculate final result
-		const finalSpeed = calculateFinalSpeed(speedSamples, "download");
+		// Calculate final download speed
+		const finalSpeed = calculateFinalSpeed(downloadSpeeds, "download");
 		console.log(`Download test complete: ${finalSpeed.toFixed(2)} Mbps`);
-
-		// Clean up
-		stopProgressTracking();
-		resetActiveRequests();
+		console.log(
+			`Total downloaded: ${(totalDownloaded / (1024 * 1024)).toFixed(2)} MB`
+		);
 
 		return finalSpeed;
 	} catch (error) {
 		console.error("Download test failed:", error);
-		stopProgressTracking();
-		resetActiveRequests();
-		return calculateFallbackSpeed("download");
+		return connectionType === "ultra-fast"
+			? 1000
+			: connectionType === "very-fast"
+			? 500
+			: connectionType === "fast"
+			? 100
+			: 50;
 	}
 
-	// Function to start a single download stream
-	async function startDownloadStream(streamIndex) {
-		// Create a unique URL to avoid caching
-		const url = `/testfile?size=${downloadFileSize}&stream=${streamIndex}&t=${Date.now()}`;
-		console.log(
-			`Starting download stream ${streamIndex} with size ${
-				downloadFileSize / 1024 / 1024
-			}MB`
-		);
+	// Function to start a single download
+	async function startDownload(index) {
+		// Create unique URL to avoid caching
+		const url = `/testfile?size=${downloadFileSize}&i=${index}&t=${Date.now()}`;
 
-		return new Promise((resolve, reject) => {
-			const xhr = new XMLHttpRequest();
-			activeDownloadRequests.push(xhr);
+		try {
+			console.log(`Starting download ${index}`);
+			activeRequestCount++;
 
-			let lastLoadedBytes = 0;
-			let startTime = performance.now();
-			let warmupPhaseComplete = false;
+			// Create abort controller for this request
+			const controller = new AbortController();
+			abortControllers.push(controller);
 
-			xhr.open("GET", url, true);
-			xhr.responseType = "arraybuffer";
+			const startTime = performance.now();
+			const response = await fetch(url, { signal: controller.signal });
 
-			xhr.onprogress = function (event) {
+			if (!response.ok) {
+				console.warn(`Download ${index} failed: ${response.status}`);
+				activeRequestCount--;
+				return;
+			}
+
+			// Monitor download progress
+			const reader = response.body.getReader();
+			const contentLength = parseInt(
+				response.headers.get("Content-Length") || "0",
+				10
+			);
+			let receivedLength = 0;
+			let lastProgressUpdateTime = performance.now();
+			let lastReceivedLength = 0;
+
+			while (true) {
+				const { done, value } = await reader.read();
+
+				if (done) {
+					console.log(`Download ${index} complete`);
+					break;
+				}
+
+				// Update received bytes
+				receivedLength += value.length;
+				totalDownloaded += value.length;
+
+				// Calculate speed periodically
 				const now = performance.now();
-				const bytesLoaded = event.loaded - lastLoadedBytes;
-				lastLoadedBytes = event.loaded;
+				const timeSinceLastUpdate = now - lastProgressUpdateTime;
 
-				// Check if we're past the warmup phase
-				if (
-					!warmupPhaseComplete &&
-					now - testStartTime > WARMUP_DURATION * 1000
-				) {
-					warmupPhaseComplete = true;
-					console.log(`Stream ${streamIndex} exiting warmup phase`);
-					// Reset measurements after warmup
-					startTime = now;
-					speedSamples = [];
-				}
+				if (timeSinceLastUpdate >= MEASUREMENT_INTERVAL) {
+					const bytesInInterval = receivedLength - lastReceivedLength;
+					const intervalInSeconds = timeSinceLastUpdate / 1000;
 
-				// Only count bytes after warmup phase
-				if (warmupPhaseComplete) {
-					totalDownloaded += bytesLoaded;
+					// Calculate speed in Mbps
+					const speedMbps =
+						(bytesInInterval * 8) / (1024 * 1024) / intervalInSeconds;
 
-					// Calculate and record speed
-					const elapsedSeconds = (now - startTime) / 1000;
-					if (elapsedSeconds > 0) {
-						// Calculate current speed for this stream
-						const instantSpeed =
-							(bytesLoaded * 8) / (1024 * 1024) / elapsedSeconds;
+					// Add to speed measurements if valid
+					if (speedMbps > 0 && speedMbps < 50000) {
+						downloadSpeeds.push(speedMbps);
 
-						// Add to speed samples if reasonable
-						if (instantSpeed > 0 && instantSpeed < 50000) {
-							speedSamples.push({
-								time: now,
-								speed: instantSpeed,
-							});
-
-							// Calculate and display current speed
-							displayCurrentSpeed(now);
-						}
-					}
-				}
-			};
-
-			xhr.onload = function () {
-				if (xhr.status >= 200 && xhr.status < 300) {
-					console.log(`Download stream ${streamIndex} completed successfully`);
-
-					// Start a new stream to maintain concurrency for the test duration
-					const elapsed = performance.now() - testStartTime;
-					if (elapsed < TARGET_DL_DURATION * 1000) {
-						console.log(
-							`Starting replacement download stream for ${streamIndex}`
+						// Update progress
+						const timeElapsed = now - testStartTime;
+						const progress = Math.min(
+							99,
+							(timeElapsed / (MIN_TEST_DURATION * 1000)) * 100
 						);
-						startDownloadStream(streamIndex).catch(console.error);
+
+						onProgress({
+							progress,
+							currentSpeed: speedMbps,
+						});
 					}
 
-					resolve();
-				} else {
-					console.warn(
-						`Download stream ${streamIndex} failed with status ${xhr.status}`
-					);
-					reject(new Error(`HTTP error ${xhr.status}`));
+					lastProgressUpdateTime = now;
+					lastReceivedLength = receivedLength;
 				}
-			};
 
-			xhr.onerror = function () {
-				console.error(`Download stream ${streamIndex} error`);
-				reject(new Error("Network error"));
-			};
+				// Check if we've exceeded the test duration
+				if (performance.now() >= testEndTime) {
+					console.log(`Download ${index} duration reached, aborting`);
+					controller.abort();
+					break;
+				}
+			}
 
-			xhr.onabort = function () {
-				console.log(`Download stream ${streamIndex} aborted`);
-				resolve(); // Resolve on abort, not an error
-			};
+			// Start a new download if we're still within the test duration
+			if (performance.now() < testEndTime) {
+				startDownload(index + downloadConcurrency);
+			}
 
-			xhr.ontimeout = function () {
-				console.warn(`Download stream ${streamIndex} timed out`);
-				reject(new Error("Timeout"));
-			};
+			activeRequestCount--;
+		} catch (error) {
+			if (error.name === "AbortError") {
+				console.log(`Download ${index} was aborted`);
+			} else {
+				console.error(`Download ${index} error:`, error);
+			}
 
-			xhr.send();
-			downloadRequestCount++;
-		});
+			activeRequestCount--;
+
+			// Start a new download if the error wasn't an abort and we're within test duration
+			if (error.name !== "AbortError" && performance.now() < testEndTime) {
+				await new Promise((resolve) => setTimeout(resolve, 500)); // Small delay after error
+				startDownload(index + downloadConcurrency);
+			}
+		}
 	}
 }
 
-// Measure upload speed with longer tests and improved statistics
+// Measure upload speed with balanced requests and proper duration
 async function measureUploadSpeed(onProgress) {
 	const isLocal =
 		window.location.hostname === "localhost" ||
@@ -678,430 +595,350 @@ async function measureUploadSpeed(onProgress) {
 	}
 
 	console.log(
-		`Starting upload test with target duration: ${TARGET_UL_DURATION}s`
+		`Starting upload test with chunk size: ${
+			uploadChunkSize / 1024 / 1024
+		}MB, concurrency: ${uploadConcurrency}`
 	);
 
 	// Reset measurement state
-	resetSpeedMeasurement();
-	testStartTime = performance.now();
-	uploadTimeOffset = 0;
+	uploadSpeeds = [];
 	totalUploaded = 0;
+	activeRequestCount = 0;
 
-	// Set up progress tracking with test duration
-	startProgressTracking(TARGET_UL_DURATION * 1000);
+	// Set timestamps for the test
+	testStartTime = performance.now();
+	testEndTime = testStartTime + MIN_TEST_DURATION * 1000;
 
 	try {
-		// Generate upload data - will be reused across requests
-		console.log(
-			`Generating upload data (${uploadChunkSize / 1024 / 1024}MB chunks)...`
-		);
+		// Generate test data for uploads
+		console.log("Generating upload data...");
+		updateProgress({ progress: 0, currentSpeed: 0 });
 
-		// Create chunks of upload data
-		const uploadChunks = [];
-		const chunksNeeded = Math.max(12, uploadConcurrency * 3); // Ensure we have enough chunks
+		// Generate data with progressive updates
+		const uploadData = await generateUploadData();
+		console.log(`Upload data ready: ${uploadData.length} chunks`);
 
-		// Generate chunks with progress tracking (5% of overall progress)
-		for (let i = 0; i < chunksNeeded; i++) {
-			uploadChunks.push(generateRandomData(uploadChunkSize));
-			updateProgress({
-				progress: (i / chunksNeeded) * 5,
-				currentSpeed: 0,
-			});
-
-			// Small delay to not freeze UI during data generation
-			if (i % 3 === 0) {
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-		}
-
-		// Start multiple upload streams
+		// Start upload test with multiple concurrent requests
 		const uploadPromises = [];
+
+		// Initial batch of uploads
 		for (let i = 0; i < uploadConcurrency; i++) {
-			uploadPromises.push(startUploadStream(i, uploadChunks));
-
-			// Stagger the start of streams for better stability
-			if (i < uploadConcurrency - 1) {
-				await new Promise((resolve) => setTimeout(resolve, 200));
-			}
+			uploadPromises.push(startUpload(i, uploadData));
 		}
 
-		// Continue uploading until target duration is reached
-		await Promise.race([
-			Promise.all(uploadPromises),
-			new Promise((resolve) =>
-				setTimeout(resolve, TARGET_UL_DURATION * 1000 + 5000)
-			), // Extra 5s grace period
-		]);
+		// Create a timeout promise to ensure the test runs for minimum duration
+		const timeoutPromise = new Promise((resolve) => {
+			setTimeout(() => {
+				console.log(
+					`Upload test minimum duration (${MIN_TEST_DURATION}s) reached`
+				);
+				resolve();
+			}, MIN_TEST_DURATION * 1000);
+		});
 
-		// After test completion or timeout, abort any remaining streams
-		for (let req of activeUploadRequests) {
-			if (req && req.abort) req.abort();
-		}
+		// Wait for all uploads to complete and minimum time to pass
+		await Promise.all([Promise.all(uploadPromises), timeoutPromise]);
 
-		// Calculate final result
-		const finalSpeed = calculateFinalSpeed(speedSamples, "upload");
+		// Calculate final upload speed
+		const finalSpeed = calculateFinalSpeed(uploadSpeeds, "upload");
 		console.log(`Upload test complete: ${finalSpeed.toFixed(2)} Mbps`);
-
-		// Clean up
-		stopProgressTracking();
-		resetActiveRequests();
+		console.log(
+			`Total uploaded: ${(totalUploaded / (1024 * 1024)).toFixed(2)} MB`
+		);
 
 		return finalSpeed;
 	} catch (error) {
 		console.error("Upload test failed:", error);
-		stopProgressTracking();
-		resetActiveRequests();
-		return calculateFallbackSpeed("upload");
+		return connectionType === "ultra-fast"
+			? 800
+			: connectionType === "very-fast"
+			? 400
+			: connectionType === "fast"
+			? 80
+			: 30;
 	}
 
-	// Function to start a single upload stream
-	async function startUploadStream(streamIndex, uploadChunks) {
-		console.log(`Starting upload stream ${streamIndex}`);
+	// Generate upload data chunks
+	async function generateUploadData() {
+		// Create enough chunks based on speed and concurrency
+		const numChunks = Math.max(5, uploadConcurrency * 4);
+		const chunks = [];
 
-		return new Promise((resolve, reject) => {
-			let chunkIndex = streamIndex % uploadChunks.length;
-			let warmupPhaseComplete = false;
-			let startTime = performance.now();
+		for (let i = 0; i < numChunks; i++) {
+			chunks.push(generateRandomData(uploadChunkSize));
 
-			function uploadNextChunk() {
-				const now = performance.now();
-				const elapsed = now - testStartTime;
+			// Update progress for data generation
+			updateProgress({
+				progress: (i / numChunks) * 10, // First 10% for generation
+				currentSpeed: 0,
+			});
 
-				// Check if we've reached the test duration
-				if (elapsed >= TARGET_UL_DURATION * 1000) {
-					console.log(`Upload stream ${streamIndex} reached target duration`);
-					resolve();
-					return;
-				}
+			// Small delay to not lock UI
+			if (i % 2 === 1) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		}
 
-				// Check if we're past the warmup phase
-				if (!warmupPhaseComplete && elapsed > WARMUP_DURATION * 1000) {
-					warmupPhaseComplete = true;
-					console.log(`Stream ${streamIndex} exiting warmup phase`);
-					// Reset measurements after warmup
-					startTime = now;
-				}
+		return chunks;
+	}
 
-				// Get next chunk to upload (rotate through available chunks)
-				const chunk = uploadChunks[chunkIndex];
-				chunkIndex = (chunkIndex + 1) % uploadChunks.length;
+	// Function to start a single upload
+	async function startUpload(index, uploadData) {
+		// Use data chunk (rotating through available chunks)
+		const dataIndex = index % uploadData.length;
+		const data = uploadData[dataIndex];
 
-				// Create unique URL to avoid caching
-				const url = `/upload?stream=${streamIndex}&chunk=${uploadRequestCount}&t=${Date.now()}`;
+		try {
+			console.log(`Starting upload ${index}`);
+			activeRequestCount++;
 
-				const xhr = new XMLHttpRequest();
-				activeUploadRequests.push(xhr);
+			// Create unique URL to avoid caching
+			const url = `/upload?i=${index}&t=${Date.now()}`;
 
-				let lastUploadedBytes = 0;
-				let chunkStartTime = performance.now();
+			// Create abort controller for this request
+			const controller = new AbortController();
+			abortControllers.push(controller);
 
-				xhr.upload.onprogress = function (event) {
-					const progressNow = performance.now();
-					const bytesUploaded = event.loaded - lastUploadedBytes;
-					lastUploadedBytes = event.loaded;
+			const startTime = performance.now();
 
-					// Only count bytes after warmup phase
-					if (warmupPhaseComplete) {
-						totalUploaded += bytesUploaded;
+			// Create form data for upload
+			const formData = new FormData();
+			formData.append("file", new Blob([data]), "speedtest.bin");
 
-						// Calculate and record speed
-						const elapsedSeconds = (progressNow - chunkStartTime) / 1000;
-						if (elapsedSeconds > 0) {
-							// Calculate current speed for this chunk
-							const instantSpeed =
-								(bytesUploaded * 8) / (1024 * 1024) / elapsedSeconds;
+			// Track upload progress
+			let uploadedBytes = 0;
+			let lastProgressTime = performance.now();
 
-							// Add to speed samples if reasonable
-							if (instantSpeed > 0 && instantSpeed < 50000) {
-								speedSamples.push({
-									time: progressNow,
-									speed: instantSpeed,
-								});
+			const xhr = new XMLHttpRequest();
+			xhr.open("POST", url);
 
-								// Calculate and display current speed
-								displayCurrentSpeed(progressNow);
-							}
+			// Track upload progress
+			xhr.upload.onprogress = (event) => {
+				if (event.lengthComputable) {
+					const now = performance.now();
+					const intervalMs = now - lastProgressTime;
+
+					if (intervalMs >= MEASUREMENT_INTERVAL) {
+						const bytesInInterval = event.loaded - uploadedBytes;
+						const intervalInSeconds = intervalMs / 1000;
+
+						// Calculate speed in Mbps
+						const speedMbps =
+							(bytesInInterval * 8) / (1024 * 1024) / intervalInSeconds;
+
+						// Add to speed measurements if valid
+						if (speedMbps > 0 && speedMbps < 50000) {
+							uploadSpeeds.push(speedMbps);
+
+							// Update total uploaded
+							totalUploaded += bytesInInterval;
+
+							// Update progress
+							const timeElapsed = now - testStartTime;
+							const progress = Math.min(
+								99,
+								10 + (timeElapsed / (MIN_TEST_DURATION * 1000)) * 89
+							);
+
+							onProgress({
+								progress,
+								currentSpeed: speedMbps,
+							});
 						}
 
-						// Reset for next progress event
-						chunkStartTime = progressNow;
+						lastProgressTime = now;
+						uploadedBytes = event.loaded;
 					}
-				};
+				}
+			};
 
-				xhr.onload = function () {
-					// Remove this request from active list
-					const index = activeUploadRequests.indexOf(xhr);
-					if (index > -1) activeUploadRequests.splice(index, 1);
-
+			// Return a promise that resolves when upload completes or errors
+			return new Promise((resolve, reject) => {
+				xhr.onload = () => {
 					if (xhr.status >= 200 && xhr.status < 300) {
-						// If we're still within test duration, upload another chunk
-						uploadNextChunk();
+						console.log(`Upload ${index} complete`);
+
+						// Start a new upload if we're still within the test duration
+						if (performance.now() < testEndTime) {
+							startUpload(index + uploadConcurrency, uploadData).catch(
+								console.error
+							);
+						}
+
+						activeRequestCount--;
+						resolve();
 					} else {
-						console.warn(
-							`Upload stream ${streamIndex} failed with status ${xhr.status}`
-						);
-						// Continue with next chunk anyway
-						uploadNextChunk();
+						console.warn(`Upload ${index} failed: ${xhr.status}`);
+						activeRequestCount--;
+						reject(new Error(`HTTP error ${xhr.status}`));
 					}
 				};
 
-				xhr.onerror = function () {
-					console.error(`Upload stream ${streamIndex} error`);
-					// Continue with next chunk despite error
-					uploadNextChunk();
+				xhr.onerror = () => {
+					console.error(`Upload ${index} error`);
+					activeRequestCount--;
+					reject(new Error("Network error"));
+
+					// Try another upload if we're within test duration
+					if (performance.now() < testEndTime) {
+						setTimeout(() => {
+							startUpload(index + uploadConcurrency, uploadData).catch(
+								console.error
+							);
+						}, 500);
+					}
 				};
 
-				xhr.onabort = function () {
-					console.log(`Upload stream ${streamIndex} aborted`);
-					resolve(); // Resolve on abort
+				xhr.ontimeout = () => {
+					console.warn(`Upload ${index} timed out`);
+					activeRequestCount--;
+					reject(new Error("Timeout"));
 				};
 
-				xhr.ontimeout = function () {
-					console.warn(`Upload stream ${streamIndex} timed out`);
-					// Continue with next chunk despite timeout
-					uploadNextChunk();
+				xhr.onabort = () => {
+					console.log(`Upload ${index} aborted`);
+					activeRequestCount--;
+					resolve();
 				};
 
-				xhr.open("POST", url, true);
-				xhr.setRequestHeader("Content-Type", "application/octet-stream");
-				xhr.send(chunk);
-				uploadRequestCount++;
+				// Set timeout handler to abort if needed
+				const timeoutHandle = setTimeout(() => {
+					if (performance.now() >= testEndTime) {
+						xhr.abort();
+					}
+				}, MIN_TEST_DURATION * 1000);
+
+				// Send the upload
+				xhr.send(formData);
+			});
+		} catch (error) {
+			console.error(`Upload ${index} error:`, error);
+			activeRequestCount--;
+
+			// Start a new upload if the error wasn't an abort and we're within test duration
+			if (error.name !== "AbortError" && performance.now() < testEndTime) {
+				await new Promise((resolve) => setTimeout(resolve, 500)); // Small delay after error
+				startUpload(index + uploadConcurrency, uploadData);
 			}
-
-			// Start the upload process
-			uploadNextChunk();
-		});
+		}
 	}
 }
 
-// Simulate speed test for local testing with realistic variations
+// Simulate speed test for local testing
 function simulateSpeedTest(onProgress, baseSpeed, type) {
 	return new Promise((resolve) => {
 		console.log(`Using ${type} speed simulation (${baseSpeed} Mbps)`);
 
-		// Reset speed measurement for simulation
-		resetSpeedMeasurement();
-
-		// Different parameters for different test types
+		// Different parameters for download vs upload
 		const variation = type === "download" ? 0.05 : 0.1; // 5% variation for download, 10% for upload
 		const updateFrequency = 150; // ms between updates
-		const testDuration =
-			type === "download" ? TARGET_DL_DURATION : TARGET_UL_DURATION;
 
-		// For upload, use a slight reduction from download speed
+		// For upload, use a realistic reduction compared to download
 		const actualBaseSpeed = type === "upload" ? baseSpeed * 0.85 : baseSpeed;
 
-		// TCP slow-start simulation
-		const rampUpFactor = 0.3; // Start at 30% of max speed
-		const rampUpDuration = 5000; // 5 seconds to reach full speed
+		// Store measurements
+		const measurements = [];
 
-		// Start progress tracking
-		startProgressTracking(testDuration * 1000);
-		const testStart = performance.now();
+		// Simulate test with realistic variations
+		let progress = 0;
+		let duration = 0;
+		const testDuration = MIN_TEST_DURATION * 1000;
 
-		// Simulate test with variations in speed over time
+		// Start simulation timer
 		const interval = setInterval(() => {
-			const now = performance.now();
-			const elapsed = now - testStart;
+			duration += updateFrequency;
 
-			// Check if we've reached the end of the test
-			if (elapsed >= testDuration * 1000) {
+			// Progress based on elapsed time
+			progress = Math.min(99, (duration / testDuration) * 100);
+
+			// Simulate TCP slow start
+			const rampUp = Math.min(1, duration / 3000); // 3 seconds to full speed
+
+			// Add realistic network fluctuations
+			const stabilityFactor = Math.min(1, duration / 5000);
+			const currentVariation = variation * (1 - stabilityFactor * 0.5);
+			const speedFactor =
+				1 - currentVariation + Math.random() * currentVariation * 2;
+
+			// Add periodic variation to simulate network congestion
+			const periodicEffect = Math.sin(duration / 2000) * 0.03;
+
+			// Calculate current speed
+			const currentSpeed =
+				actualBaseSpeed * (0.3 + 0.7 * rampUp) * (speedFactor + periodicEffect);
+
+			// Add to measurements
+			measurements.push(currentSpeed);
+
+			// Update UI
+			onProgress({ progress, currentSpeed });
+
+			// Check if test is complete
+			if (progress >= 99) {
 				clearInterval(interval);
 
-				// Calculate final speed using our statistical methods
-				const finalSpeed = calculateFinalSpeed(speedSamples, type);
-				stopProgressTracking();
+				// Calculate final result using same method as real tests
+				const finalSpeed = calculateFinalSpeed(measurements, type);
+				console.log(
+					`${type} simulation complete: ${finalSpeed.toFixed(2)} Mbps`
+				);
+
+				// Set progress to 100%
+				onProgress({ progress: 100, currentSpeed: finalSpeed });
+
 				resolve(finalSpeed);
-				return;
 			}
-
-			// Check if we're past the warmup phase
-			const isWarmupPhase = elapsed < WARMUP_DURATION * 1000;
-
-			// TCP slow-start effect
-			let speedModifier = 1;
-			if (elapsed < rampUpDuration) {
-				speedModifier =
-					rampUpFactor + (1 - rampUpFactor) * (elapsed / rampUpDuration);
-			}
-
-			// Realistic speed variations
-			// Variation reduces as connection stabilizes
-			const stabilityFactor = Math.min(1, elapsed / 8000) * 0.7;
-			const currentVariation = variation * (1 - stabilityFactor);
-
-			// Add periodic fluctuations to simulate network congestion
-			const periodicEffect = Math.sin(elapsed / 3000) * 0.05;
-
-			// Calculate speed
-			const speedFactor =
-				1 -
-				currentVariation +
-				Math.random() * currentVariation * 2 +
-				periodicEffect;
-			const currentSpeed = actualBaseSpeed * speedFactor * speedModifier;
-
-			// Only record speed after warmup phase
-			if (!isWarmupPhase) {
-				speedSamples.push({
-					time: now,
-					speed: currentSpeed,
-				});
-			}
-
-			// Update progress and speed display
-			updateProgress({
-				progress: (elapsed / (testDuration * 1000)) * 100,
-				currentSpeed: currentSpeed,
-			});
 		}, updateFrequency);
 	});
 }
 
-// Helper function to reset speed measurement
-function resetSpeedMeasurement() {
-	speedSamples = [];
-	lastDisplayedSpeed = 0;
-	lastSpeedUpdateTime = 0;
-	speedWindow = [];
-}
-
-// Helper function to reset active requests
-function resetActiveRequests() {
-	// Cancel and clear all active requests
-	for (let req of activeDownloadRequests) {
-		if (req && req.abort) req.abort();
-	}
-	for (let req of activeUploadRequests) {
-		if (req && req.abort) req.abort();
-	}
-	activeDownloadRequests = [];
-	activeUploadRequests = [];
-}
-
-// Calculate and display current speed
-function displayCurrentSpeed(now) {
-	// Throttle updates to avoid too frequent UI updates
-	if (now - lastSpeedUpdateTime < MEASUREMENT_INTERVAL) {
-		return;
+// Calculate final speed with statistical methods
+function calculateFinalSpeed(speeds, testType) {
+	if (!speeds.length) {
+		// Fallback if no measurements
+		return connectionType === "ultra-fast"
+			? 1000
+			: connectionType === "very-fast"
+			? 500
+			: connectionType === "fast"
+			? 100
+			: connectionType === "moderate"
+			? 50
+			: 10;
 	}
 
-	lastSpeedUpdateTime = now;
+	// Sort measurements
+	const sortedSpeeds = [...speeds].sort((a, b) => a - b);
 
-	// Calculate average speed over the last few seconds using a sliding window
-	const windowDuration = SPEED_AVG_WINDOW * 1000; // Window size in ms
-	const relevantSamples = speedSamples.filter(
-		(sample) => now - sample.time <= windowDuration
+	// Apply different percentiles based on connection type and test type
+	let percentile = 0.5; // Default to median (50th percentile)
+
+	if (testType === "download") {
+		if (connectionType === "ultra-fast") percentile = 0.9; // 90th percentile
+		else if (connectionType === "very-fast")
+			percentile = 0.85; // 85th percentile
+		else if (connectionType === "fast") percentile = 0.8; // 80th percentile
+		else if (connectionType === "moderate") percentile = 0.75; // 75th percentile
+	} else {
+		// upload
+		if (connectionType === "ultra-fast") percentile = 0.85; // 85th percentile
+		else if (connectionType === "very-fast")
+			percentile = 0.8; // 80th percentile
+		else if (connectionType === "fast") percentile = 0.75; // 75th percentile
+		else if (connectionType === "moderate") percentile = 0.7; // 70th percentile
+	}
+
+	// Calculate the index for the percentile
+	const index = Math.floor(sortedSpeeds.length * percentile);
+	const finalSpeed = sortedSpeeds[index];
+
+	console.log(
+		`${testType} speed calculation: Using ${(percentile * 100).toFixed(
+			0
+		)}th percentile from ${sortedSpeeds.length} samples`
 	);
 
-	if (relevantSamples.length > 0) {
-		const avgSpeed =
-			relevantSamples.reduce((sum, sample) => sum + sample.speed, 0) /
-			relevantSamples.length;
-
-		// Apply smoothing to avoid jumpy display
-		const smoothingFactor = 0.7; // Higher = more smoothing
-		const displaySpeed =
-			lastDisplayedSpeed > 0
-				? lastDisplayedSpeed * smoothingFactor +
-				  avgSpeed * (1 - smoothingFactor)
-				: avgSpeed;
-
-		lastDisplayedSpeed = displaySpeed;
-
-		// Update the UI
-		updateProgress({
-			progress: getProgressValue(),
-			currentSpeed: displaySpeed,
-		});
-	}
-}
-
-// Calculate final speed using statistical analysis
-function calculateFinalSpeed(samples, testType) {
-	if (samples.length === 0) {
-		return calculateFallbackSpeed(testType);
-	}
-
-	// Sort samples by speed
-	samples.sort((a, b) => a.speed - b.speed);
-
-	// Apply different statistical methods based on connection type
-	let finalSpeed;
-
-	if (connectionType === "ultra-fast") {
-		// For ultra-high-speed, use 90th percentile
-		const idx = Math.floor(samples.length * 0.9);
-		finalSpeed = samples[idx].speed;
-		console.log("Using 90th percentile for ultra-high-speed:", finalSpeed);
-	} else if (connectionType === "very-fast") {
-		// For very-high-speed, use 85th percentile
-		const idx = Math.floor(samples.length * 0.85);
-		finalSpeed = samples[idx].speed;
-		console.log("Using 85th percentile for very-high-speed:", finalSpeed);
-	} else if (connectionType === "fast") {
-		// For fast connections, use 80th percentile
-		const idx = Math.floor(samples.length * 0.8);
-		finalSpeed = samples[idx].speed;
-		console.log("Using 80th percentile for fast connection:", finalSpeed);
-	} else if (connectionType === "moderate") {
-		// For moderate connections, use 75th percentile
-		const idx = Math.floor(samples.length * 0.75);
-		finalSpeed = samples[idx].speed;
-		console.log("Using 75th percentile for moderate connection:", finalSpeed);
-	} else {
-		// For slower connections, use median (50th percentile)
-		const idx = Math.floor(samples.length * 0.5);
-		finalSpeed = samples[idx].speed;
-		console.log("Using median for slow connection:", finalSpeed);
-	}
-
 	return finalSpeed;
-}
-
-// Calculate fallback speed if test fails
-function calculateFallbackSpeed(testType) {
-	console.warn(`Using fallback speed calculation for ${testType}`);
-
-	// Set fallback speeds based on connection type
-	const fallbackSpeeds = {
-		"ultra-fast": { download: 1000, upload: 800 },
-		"very-fast": { download: 500, upload: 400 },
-		fast: { download: 100, upload: 80 },
-		moderate: { download: 30, upload: 25 },
-		slow: { download: 5, upload: 3 },
-	};
-
-	return fallbackSpeeds[connectionType]?.[testType] || 10;
-}
-
-// Start progress tracking
-function startProgressTracking(duration) {
-	stopProgressTracking(); // Ensure no existing interval
-
-	progressState = "init";
-	progressValue = 0;
-	const startTime = performance.now();
-
-	progressInterval = setInterval(() => {
-		const elapsed = performance.now() - startTime;
-		progressValue = Math.min(99, (elapsed / duration) * 100); // Cap at 99% until complete
-	}, 100);
-}
-
-// Stop progress tracking
-function stopProgressTracking() {
-	if (progressInterval) {
-		clearInterval(progressInterval);
-		progressInterval = null;
-	}
-	progressValue = 100; // Complete
-	progressState = "done";
-}
-
-// Get current progress value
-function getProgressValue() {
-	return progressValue;
 }
 
 // Update the UI based on current state
@@ -1220,9 +1057,6 @@ function showResults() {
 	);
 	console.log(
 		`Total uploaded: ${(totalUploaded / (1024 * 1024)).toFixed(2)} MB`
-	);
-	console.log(
-		`Download requests: ${downloadRequestCount}, Upload requests: ${uploadRequestCount}`
 	);
 }
 
