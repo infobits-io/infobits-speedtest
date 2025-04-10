@@ -19,7 +19,7 @@ import (
 const (
 	maxFileSize       = 500 * 1024 * 1024 // 500 MB max file size
 	fixedDownloadSize = 32 * 1024 * 1024  // Fixed 32 MB download size
-	fixedUploadSize   = 500               // Fixed 500 bytes upload size
+	fixedUploadSize   = 32 * 1024 * 1024  // Fixed 32 MB upload size (changed from 500 bytes)
 )
 
 // Initialize logger
@@ -145,8 +145,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For upload test, we only read a fixed amount (500 bytes), but set a larger limit
-	// to ensure we can handle different client uploads
+	// For upload test, we use the same size as download (32MB)
 	r.Body = http.MaxBytesReader(w, r.Body, maxFileSize)
 
 	// Check if we need to simulate latency for more accurate testing
@@ -187,8 +186,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Read the uploaded data (only a fixed size, but discard it all)
-	// Even if client sends more than the fixed size, we count only up to fixedUploadSize
+	// Read the uploaded data (using the fixed size)
 	var byteCount int64
 	buffer := make([]byte, 8192) // Use a reasonable buffer size
 	totalRead := int64(0)
@@ -203,25 +201,17 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 		totalRead += int64(n)
 
-		// For the test, we only count the first fixedUploadSize bytes
+		// For the test, we count up to fixedUploadSize bytes
 		if totalRead <= int64(fixedUploadSize) {
-			if totalRead == int64(fixedUploadSize) {
-				byteCount = totalRead
-			} else if totalRead > int64(fixedUploadSize) {
-				byteCount = int64(fixedUploadSize)
-			} else {
-				byteCount = totalRead
-			}
+			byteCount = totalRead
+		} else {
+			byteCount = int64(fixedUploadSize)
 		}
 
 		if err == io.EOF {
 			break
 		}
 	}
-
-	// Ensure we always report exactly the fixed upload size
-	// This is important for consistent test results
-	byteCount = int64(fixedUploadSize)
 
 	// Simulate additional latency if requested
 	if simulateLatencyMs > 0 {

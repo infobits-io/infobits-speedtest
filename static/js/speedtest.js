@@ -9,7 +9,7 @@ const WARMUP_DURATION = 5; // Seconds for warmup phase
 
 // Fixed sizes as specified
 const DOWNLOAD_FILE_SIZE = 32 * 1024 * 1024; // Fixed 32 MB download size
-const UPLOAD_CHUNK_SIZE = 500; // Fixed 500 bytes upload size
+const UPLOAD_FILE_SIZE = 32 * 1024 * 1024; // Fixed 32 MB upload size (changed from 500 bytes)
 
 // Initial concurrency settings (can still adjust based on connection)
 let downloadConcurrency = 4; // Initial concurrent downloads
@@ -308,7 +308,11 @@ function adjustTestParameters(speedMbps) {
 	}
 
 	console.log(
-		`Adjusted test parameters: downloadSize=32MB, uploadChunk=500B, concurrency=${downloadConcurrency}/${uploadConcurrency}, method=${speedCalculationMethod}`
+		`Adjusted test parameters: downloadSize=${
+			DOWNLOAD_FILE_SIZE / 1024 / 1024
+		}MB, uploadSize=${
+			UPLOAD_FILE_SIZE / 1024 / 1024
+		}MB, concurrency=${downloadConcurrency}/${uploadConcurrency}, method=${speedCalculationMethod}`
 	);
 }
 
@@ -688,7 +692,7 @@ async function measureDownloadSpeed(onProgress) {
 	}
 }
 
-// Optimized upload speed test with fixed chunk size (500 bytes)
+// Optimized upload speed test with fixed file size (32 MB)
 async function measureUploadSpeed(onProgress) {
 	const isLocal =
 		window.location.hostname === "localhost" ||
@@ -704,7 +708,7 @@ async function measureUploadSpeed(onProgress) {
 	}
 
 	console.log(
-		`Starting upload test with concurrency: ${uploadConcurrency}, chunk size: 500 bytes`
+		`Starting upload test with concurrency: ${uploadConcurrency}, file size: 32MB`
 	);
 
 	// Reset state
@@ -728,12 +732,13 @@ async function measureUploadSpeed(onProgress) {
 	let speedWindowStartTime = testStartTime;
 
 	try {
-		// Generate upload data
+		// Generate upload data - this will now be a full 32MB buffer instead of small chunks
 		console.log("Generating upload data...");
 		updateProgress({ progress: 0, currentSpeed: 0 });
 
+		// Generate the upload data - potentially divide into smaller segments for memory efficiency
 		const uploadData = await generateUploadData();
-		console.log(`Upload data ready: ${uploadData.length} chunks`);
+		console.log(`Upload data ready: ${uploadData.byteLength} bytes`);
 
 		// Start speed sampling interval
 		speedSampleInterval = setInterval(() => {
@@ -831,7 +836,9 @@ async function measureUploadSpeed(onProgress) {
 		// Calculate final speed
 		const finalSpeed = calculateFinalSpeed(uploadSpeeds, "upload");
 		console.log(`Upload test complete: ${finalSpeed.toFixed(2)} Mbps`);
-		console.log(`Total uploaded: ${(totalUploaded / 1024).toFixed(2)} KB`);
+		console.log(
+			`Total uploaded: ${(totalUploaded / (1024 * 1024)).toFixed(2)} MB`
+		);
 
 		// Final progress update
 		onProgress({ progress: 100, currentSpeed: finalSpeed });
@@ -843,14 +850,20 @@ async function measureUploadSpeed(onProgress) {
 		return getFallbackSpeed("upload");
 	}
 
-	// Function to generate upload data
+	// Function to generate upload data for 32MB
 	async function generateUploadData() {
-		// Create enough chunks
-		const numChunks = Math.max(5, uploadConcurrency * 2);
-		const chunks = [];
+		// This function now generates a full 32MB buffer instead of multiple small chunks
+		console.log("Generating 32MB of random data for upload test...");
+
+		// Generate data in chunks to avoid browser memory issues
+		const chunkSize = 4 * 1024 * 1024; // 4MB chunks
+		const numChunks = UPLOAD_FILE_SIZE / chunkSize;
+		const combinedBuffer = new ArrayBuffer(UPLOAD_FILE_SIZE);
+		const combinedView = new Uint8Array(combinedBuffer);
 
 		for (let i = 0; i < numChunks; i++) {
-			chunks.push(generateRandomData(UPLOAD_CHUNK_SIZE)); // Fixed 500 bytes
+			const chunk = generateRandomData(chunkSize);
+			combinedView.set(chunk, i * chunkSize);
 
 			// Update progress for data generation
 			updateProgress({
@@ -859,21 +872,15 @@ async function measureUploadSpeed(onProgress) {
 			});
 
 			// Small delay to prevent UI freeze
-			if (i % 2 === 1) {
-				await new Promise((resolve) => setTimeout(resolve, 5));
-			}
+			await new Promise((resolve) => setTimeout(resolve, 10));
 		}
 
-		return chunks;
+		return combinedBuffer;
 	}
 
-	// Function to start a single upload stream
+	// Function to start a single upload stream with the full 32MB data
 	async function startUploadStream(streamId, uploadData) {
 		return new Promise((resolve, reject) => {
-			// Use data chunk (rotating through available chunks)
-			const dataIndex = streamId % uploadData.length;
-			const data = uploadData[dataIndex];
-
 			// Create unique URL to avoid caching
 			const url = `/upload?i=${streamId}&t=${Date.now()}`;
 
@@ -943,14 +950,14 @@ async function measureUploadSpeed(onProgress) {
 
 			xhr.open("POST", url);
 
-			// Use blob for better performance
-			const blob = new Blob([data], { type: "application/octet-stream" });
+			// Set content-type to application/octet-stream
+			xhr.setRequestHeader("Content-Type", "application/octet-stream");
 
-			// Create form data
-			const formData = new FormData();
-			formData.append("file", blob, "speedtest.bin");
+			// Use Blob for better performance
+			const blob = new Blob([uploadData], { type: "application/octet-stream" });
 
-			xhr.send(formData);
+			// Send the blob directly without FormData
+			xhr.send(blob);
 			console.log(`Started upload stream ${streamId}`);
 		});
 	}
@@ -1222,7 +1229,7 @@ function updateStatus(status, data) {
 			progressBarFill.style.backgroundColor = "#2563eb"; // Blue
 			break;
 		case TestStatus.UPLOAD:
-			statusLabel.textContent = "Testing Upload Speed (500 bytes)...";
+			statusLabel.textContent = "Testing Upload Speed (32 MB)..."; // Updated to 32 MB
 			progressBarFill.style.backgroundColor = "#7c3aed"; // Purple
 			break;
 		case TestStatus.COMPLETE:
@@ -1302,7 +1309,9 @@ function showResults() {
 	console.log(
 		`Total downloaded: ${(totalDownloaded / (1024 * 1024)).toFixed(2)} MB`
 	);
-	console.log(`Total uploaded: ${(totalUploaded / 1024).toFixed(2)} KB`);
+	console.log(
+		`Total uploaded: ${(totalUploaded / (1024 * 1024)).toFixed(2)} MB`
+	); // Updated to MB from KB
 }
 
 // Helper function to format speed with appropriate units
