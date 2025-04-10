@@ -2,7 +2,7 @@
 const TEST_FILE_SIZE = 50 * 1024 * 1024; // 50MB for download test
 const UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks for upload
 const PING_TESTS = 10; // Number of ping tests
-const MIN_TEST_DURATION = 5; // Minimum test duration in seconds
+const MIN_TEST_DURATION = 10; // Minimum test duration in seconds (increased for realism)
 const MEASUREMENT_INTERVAL = 200; // Milliseconds between measurements
 
 // Test status enum
@@ -52,6 +52,10 @@ async function startTest() {
 	// Reset state
 	isRunning = true;
 	testStatus = TestStatus.IDLE;
+
+	// Hide previous results
+	resultContainer.style.display = "none";
+
 	updateUI();
 
 	try {
@@ -81,17 +85,25 @@ async function startTest() {
 	}
 }
 
-// Measure latency
+// Measure latency - improved version
 async function measureLatency() {
 	const pingResults = [];
 
+	// Reset progress and show status
 	updateStatus(TestStatus.IDLE, { progress: 0, currentSpeed: 0 });
 	console.log("Starting latency test");
 
+	// First ping might be slow due to connection setup, so do a warm-up ping
+	try {
+		await fetch(`/ping?t=${Date.now()}`, { method: "GET" });
+	} catch (e) {
+		console.log("Warm-up ping failed, continuing with test");
+	}
+
+	// Real ping tests
 	for (let i = 0; i < PING_TESTS; i++) {
 		const startTime = performance.now();
 		try {
-			// Add cache busting parameter
 			await fetch(`/ping?t=${Date.now()}`, { method: "GET" });
 			const endTime = performance.now();
 			const latencyValue = endTime - startTime;
@@ -108,39 +120,62 @@ async function measureLatency() {
 		});
 
 		// Small delay between tests
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		await new Promise((resolve) => setTimeout(resolve, 200));
 	}
 
-	// For local development, set a minimum of 5ms latency
-	if (
+	// For local development, generate more realistic values if needed
+	const isLocal =
 		window.location.hostname === "localhost" ||
-		window.location.hostname === "127.0.0.1" ||
-		pingResults.length === 0 ||
-		(pingResults.length > 0 &&
-			pingResults.reduce((sum, time) => sum + time, 0) / pingResults.length < 5)
+		window.location.hostname === "127.0.0.1";
+
+	let latency, jitter;
+
+	if (
+		isLocal &&
+		(pingResults.length === 0 || pingResults.every((p) => p < 3))
 	) {
-		console.log("Using simulated latency values for local development");
-		// Create simulated ping values that are more realistic (5-15ms)
+		console.log("Using realistic latency values for local development");
+
+		// Create realistic ping values
 		const simulatedPings = [];
-		for (let i = 0; i < 10; i++) {
-			simulatedPings.push(5 + Math.random() * 10);
+		const baseLatency = 15 + Math.random() * 20; // Between 15-35ms
+
+		for (let i = 0; i < PING_TESTS; i++) {
+			// Add variation around the base latency (±30%)
+			simulatedPings.push(baseLatency * (0.7 + Math.random() * 0.6));
 		}
-		pingResults.length = 0; // Clear existing results
-		pingResults.push(...simulatedPings); // Add simulated results
+
+		// Calculate average latency from simulated pings
+		latency =
+			simulatedPings.reduce((sum, ping) => sum + ping, 0) /
+			simulatedPings.length;
+
+		// Calculate jitter from simulated pings (variation from mean)
+		jitter =
+			simulatedPings.reduce((sum, ping) => sum + Math.abs(ping - latency), 0) /
+			simulatedPings.length;
+	} else {
+		// Calculate from real measurements
+		// Remove outliers (very high values)
+		const filteredPings =
+			pingResults.length >= 5
+				? pingResults.sort((a, b) => a - b).slice(0, pingResults.length - 1)
+				: pingResults;
+
+		latency =
+			filteredPings.length > 0
+				? filteredPings.reduce((sum, time) => sum + time, 0) /
+				  filteredPings.length
+				: 20; // Default if no measurements
+
+		jitter =
+			filteredPings.length > 0
+				? filteredPings.reduce(
+						(sum, time) => sum + Math.abs(time - latency),
+						0
+				  ) / filteredPings.length
+				: 5; // Default if no measurements
 	}
-
-	// Calculate average latency
-	const latency =
-		pingResults.length > 0
-			? pingResults.reduce((sum, time) => sum + time, 0) / pingResults.length
-			: 5; // Default to 5ms if no pings succeeded
-
-	// Calculate jitter (average deviation from the mean)
-	const jitter =
-		pingResults.length > 0
-			? pingResults.reduce((sum, time) => sum + Math.abs(time - latency), 0) /
-			  pingResults.length
-			: 2; // Default to 2ms if no pings succeeded
 
 	console.log(
 		`Latency test results - Average: ${latency.toFixed(
@@ -152,11 +187,11 @@ async function measureLatency() {
 
 // Measure download speed
 async function measureDownloadSpeed(onProgress) {
-	// For local testing, we'll use a simulated speed range
-	if (
+	const isLocal =
 		window.location.hostname === "localhost" ||
-		window.location.hostname === "127.0.0.1"
-	) {
+		window.location.hostname === "127.0.0.1";
+
+	if (isLocal) {
 		return simulateDownloadTest(onProgress);
 	}
 
@@ -184,13 +219,14 @@ async function measureDownloadSpeed(onProgress) {
 		console.log("Content length:", contentLength);
 
 		let lastUpdateTime = performance.now();
+		let testEndTime = startTime + MIN_TEST_DURATION * 1000;
 
 		// Start measuring
 		while (true) {
 			const { done, value } = await reader.read();
 
-			if (done) {
-				console.log("Download complete");
+			if (done || performance.now() >= testEndTime) {
+				console.log("Download complete or test duration reached");
 				break;
 			}
 
@@ -216,14 +252,14 @@ async function measureDownloadSpeed(onProgress) {
 				// Calculate speed in Mbps
 				const elapsedSeconds = timeSinceLastUpdate / 1000;
 				const bytesPerSecond = bytesLoaded / elapsedSeconds;
-				const currentSpeed = (bytesPerSecond * 8) / (1024 * 1024); // Convert to Mbps
+				const currentSpeedMbps = (bytesPerSecond * 8) / (1024 * 1024); // Convert to Mbps
 
 				console.log(
-					`Download speed measurement: ${currentSpeed.toFixed(2)} Mbps`
+					`Download speed measurement: ${currentSpeedMbps.toFixed(2)} Mbps`
 				);
 
-				if (currentSpeed > 0) {
-					speedMeasurements.push(currentSpeed);
+				if (currentSpeedMbps > 0) {
+					speedMeasurements.push(currentSpeedMbps);
 
 					// Report the current speed as a moving average of the last few measurements
 					const recentMeasurements = speedMeasurements.slice(-3);
@@ -252,11 +288,13 @@ async function measureDownloadSpeed(onProgress) {
 		let finalSpeed;
 
 		if (speedMeasurements.length > 0) {
-			// Average of all measurements
+			// Use the 75th percentile measurement for more reliability
+			const sortedMeasurements = [...speedMeasurements].sort((a, b) => a - b);
+			const idx = Math.floor(sortedMeasurements.length * 0.75);
 			finalSpeed =
-				speedMeasurements.reduce((sum, speed) => sum + speed, 0) /
-				speedMeasurements.length;
-			console.log("Using average of all measurements:", finalSpeed);
+				sortedMeasurements[idx] ||
+				sortedMeasurements[sortedMeasurements.length - 1];
+			console.log("Using 75th percentile of measurements:", finalSpeed);
 		} else if (totalBytes > 0 && totalTimeSeconds > 0) {
 			// Calculate from total bytes
 			finalSpeed = (totalBytes * 8) / (1024 * 1024 * totalTimeSeconds);
@@ -274,40 +312,13 @@ async function measureDownloadSpeed(onProgress) {
 	}
 }
 
-// Simulate a download test for local development
-function simulateDownloadTest(onProgress) {
-	return new Promise((resolve) => {
-		console.log("Using simulated download test for local development");
-
-		// Base speed between 50-500 Mbps
-		const baseSpeed = 50 + Math.random() * 450;
-
-		// Simulate variations in speed over time
-		let progress = 0;
-		const interval = setInterval(() => {
-			progress += 5;
-
-			// Vary speed slightly for realism
-			const variation = 0.8 + Math.random() * 0.4;
-			const currentSpeed = baseSpeed * variation;
-
-			onProgress({ progress, currentSpeed });
-
-			if (progress >= 100) {
-				clearInterval(interval);
-				resolve(baseSpeed);
-			}
-		}, 200);
-	});
-}
-
 // Measure upload speed
 async function measureUploadSpeed(onProgress) {
-	// For local testing, we'll use a simulated speed range
-	if (
+	const isLocal =
 		window.location.hostname === "localhost" ||
-		window.location.hostname === "127.0.0.1"
-	) {
+		window.location.hostname === "127.0.0.1";
+
+	if (isLocal) {
 		return simulateUploadTest(onProgress);
 	}
 
@@ -324,17 +335,21 @@ async function measureUploadSpeed(onProgress) {
 
 		// Calculate number of chunks to upload
 		const targetTestSize = TEST_FILE_SIZE;
-		const chunkCount = Math.min(
-			10,
-			Math.ceil(targetTestSize / UPLOAD_CHUNK_SIZE)
-		);
+		const chunkCount = Math.ceil(targetTestSize / UPLOAD_CHUNK_SIZE);
 
 		console.log(
 			`Upload test: chunk size=${UPLOAD_CHUNK_SIZE}, chunks=${chunkCount}`
 		);
 
+		const testEndTime = startTime + MIN_TEST_DURATION * 1000;
+
 		// Upload chunks in sequence
 		for (let i = 0; i < chunkCount; i++) {
+			if (performance.now() >= testEndTime) {
+				console.log("Upload test duration reached");
+				break;
+			}
+
 			const chunkStartTime = performance.now();
 
 			// Make the actual upload request
@@ -369,7 +384,8 @@ async function measureUploadSpeed(onProgress) {
 			// Calculate current speed in Mbps
 			let currentSpeed;
 
-			if (serverDuration > 0) {
+			if (serverDuration > 0 && serverDuration < 1) {
+				// Sanity check for server timing
 				// Use server-side timing for more accuracy if available
 				currentSpeed = (testData.length * 8) / (1024 * 1024 * serverDuration);
 			} else {
@@ -379,14 +395,19 @@ async function measureUploadSpeed(onProgress) {
 
 			console.log(`Upload speed measurement: ${currentSpeed.toFixed(2)} Mbps`);
 
-			if (currentSpeed > 0) {
+			if (currentSpeed > 0 && currentSpeed < 1000) {
 				speedMeasurements.push(currentSpeed);
 			}
 
-			// Calculate progress
-			const progress = Math.min(100, ((i + 1) / chunkCount) * 100);
+			// Calculate progress - based on both time and chunks
+			const timeProgress = Math.min(
+				100,
+				((performance.now() - startTime) / (MIN_TEST_DURATION * 1000)) * 100
+			);
+			const chunkProgress = Math.min(100, ((i + 1) / chunkCount) * 100);
+			const progress = Math.max(timeProgress, chunkProgress);
 
-			// Update progress with current average speed
+			// Use the last 3 measurements for the displayed speed
 			const recentMeasurements = speedMeasurements.slice(-3);
 			const avgSpeed =
 				recentMeasurements.length > 0
@@ -395,6 +416,9 @@ async function measureUploadSpeed(onProgress) {
 					: currentSpeed;
 
 			onProgress({ progress, currentSpeed: avgSpeed });
+
+			// Add a small delay between chunks to make test more visible
+			await new Promise((resolve) => setTimeout(resolve, 200));
 		}
 
 		console.log(
@@ -405,11 +429,12 @@ async function measureUploadSpeed(onProgress) {
 		let finalSpeed;
 
 		if (speedMeasurements.length > 0) {
-			// Average of all measurements
-			finalSpeed =
-				speedMeasurements.reduce((sum, speed) => sum + speed, 0) /
-				speedMeasurements.length;
-			console.log("Using average of upload measurements:", finalSpeed);
+			// Use the median of all measurements for more reliability
+			const sortedMeasurements = [...speedMeasurements].sort((a, b) => a - b);
+			const midIdx = Math.floor(sortedMeasurements.length / 2);
+
+			finalSpeed = sortedMeasurements[midIdx];
+			console.log("Using median of upload measurements:", finalSpeed);
 		} else if (totalUploaded > 0) {
 			// Calculate from total bytes
 			const endTime = performance.now();
@@ -432,30 +457,104 @@ async function measureUploadSpeed(onProgress) {
 	}
 }
 
-// Simulate an upload test for local development
-function simulateUploadTest(onProgress) {
+// Simulate a download test for local development - more realistic
+function simulateDownloadTest(onProgress) {
 	return new Promise((resolve) => {
-		console.log("Using simulated upload test for local development");
+		console.log("Using simulated download test for local development");
 
-		// Base speed between 30-300 Mbps
-		const baseSpeed = 30 + Math.random() * 270;
+		// Base speed between 100-500 Mbps for download
+		const baseSpeed = 100 + Math.random() * 400;
 
-		// Simulate variations in speed over time
+		// Store for average calculation
+		const measurements = [];
+
+		// Simulate a longer test with variations in speed over time
 		let progress = 0;
-		const interval = setInterval(() => {
-			progress += 10;
+		let duration = 0;
+		const updateInterval = 250; // ms between updates
 
-			// Vary speed slightly for realism
-			const variation = 0.8 + Math.random() * 0.4;
-			const currentSpeed = baseSpeed * variation;
+		const interval = setInterval(() => {
+			duration += updateInterval;
+
+			// Progress based on elapsed time related to test duration
+			progress = Math.min(100, (duration / (MIN_TEST_DURATION * 1000)) * 100);
+
+			// Simulate realistic speed variations over time
+			// Start slower, peak in the middle, then slightly drop
+			const timeRatio = duration / (MIN_TEST_DURATION * 1000);
+			let speedFactor;
+
+			if (timeRatio < 0.3) {
+				// Ramp up to 80% speed
+				speedFactor = 0.3 + (timeRatio / 0.3) * 0.5;
+			} else if (timeRatio < 0.7) {
+				// Peak speed with small variations
+				speedFactor = 0.8 + Math.random() * 0.4;
+			} else {
+				// Slightly drop off with more variation
+				speedFactor = 0.7 + Math.random() * 0.5;
+			}
+
+			const currentSpeed = baseSpeed * speedFactor;
+			measurements.push(currentSpeed);
 
 			onProgress({ progress, currentSpeed });
 
 			if (progress >= 100) {
 				clearInterval(interval);
-				resolve(baseSpeed);
+
+				// Use the 75th percentile for the final result
+				const sortedMeasurements = [...measurements].sort((a, b) => a - b);
+				const idx = Math.floor(sortedMeasurements.length * 0.75);
+				const finalSpeed = sortedMeasurements[idx];
+
+				resolve(finalSpeed);
 			}
-		}, 300);
+		}, updateInterval);
+	});
+}
+
+// Simulate an upload test for local development - more realistic
+function simulateUploadTest(onProgress) {
+	return new Promise((resolve) => {
+		console.log("Using simulated upload test for local development");
+
+		// Base speed between 20-80 Mbps for upload (typically lower than download)
+		const baseSpeed = 20 + Math.random() * 60;
+
+		// Store for average calculation
+		const measurements = [];
+
+		// Simulate a longer test with variations in speed over time
+		let progress = 0;
+		let duration = 0;
+		const updateInterval = 300; // ms between updates (slightly slower for upload)
+
+		const interval = setInterval(() => {
+			duration += updateInterval;
+
+			// Progress based on elapsed time related to test duration
+			progress = Math.min(100, (duration / (MIN_TEST_DURATION * 1000)) * 100);
+
+			// Simulate realistic speed variations for upload
+			// More variation in upload speeds
+			const variation = 0.7 + Math.random() * 0.6;
+			const currentSpeed = baseSpeed * variation;
+
+			measurements.push(currentSpeed);
+			onProgress({ progress, currentSpeed });
+
+			if (progress >= 100) {
+				clearInterval(interval);
+
+				// Use the median for the final result
+				const sortedMeasurements = [...measurements].sort((a, b) => a - b);
+				const idx = Math.floor(sortedMeasurements.length / 2);
+				const finalSpeed = sortedMeasurements[idx];
+
+				resolve(finalSpeed);
+			}
+		}, updateInterval);
 	});
 }
 
