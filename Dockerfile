@@ -1,49 +1,33 @@
-# Dockerfile
+FROM golang:1.22-alpine AS builder
 
-# Stage 1: Build the application
-FROM node:18-alpine AS builder
-
-# Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* ./
+# Copy go module files
+COPY go.mod go.sum* ./
 
-# Install dependencies with npm install to update lock file
-RUN npm install
+# Download dependencies if go.sum exists
+RUN if [ -f go.sum ]; then go mod download; fi
 
-# Copy all files
+# Copy source code
 COPY . .
 
 # Build the application
-RUN npm run build
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o speedtest .
 
-# Stage 2: Run the application
-FROM node:18-alpine AS runner
+# Use a small image for the final container
+FROM alpine:latest
 
-# Set working directory
 WORKDIR /app
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+# Copy the binary from the builder stage
+COPY --from=builder /app/speedtest .
 
-# Add a non-root user to run the app
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy standalone output from builder stage
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
-# Set proper permissions
-RUN chown -R nextjs:nodejs /app
-
-# Switch to non-root user
-USER nextjs
+# Copy static files
+COPY --from=builder /app/static ./static
 
 # Expose port
-EXPOSE 3000
+EXPOSE 8080
 
-# Start the application
-CMD ["node", "server.js"]
+# Run the application
+ENTRYPOINT ["./speedtest"]
+CMD ["-port", "8080"]

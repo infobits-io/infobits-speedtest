@@ -1,15 +1,23 @@
 # Infobits Speed Test
 
-A modern internet speed test application built with Next.js, TypeScript, and CSS modules.
+A modern internet speed test application built with Go and vanilla HTML/CSS/JavaScript.
 
 ## Features
 
-- Download speed measurement
-- Upload speed measurement
-- Latency (ping) testing
-- Jitter measurement
-- Responsive design
+- **Accurate** download speed measurement with warm-up phase and statistical methods
+- **Reliable** upload speed testing with TCP optimization
+- **Precise** latency (ping) and jitter measurement
+- Responsive design for all devices
 - Real-time progress indicators
+
+## How It Works
+
+This speed test uses advanced measurement techniques for accurate results:
+
+1. **Connection Warm-up**: Initial connection warm-up phase to establish stable connection
+2. **Statistical Analysis**: Uses median values and outlier removal for more reliable results
+3. **TCP Optimization**: Optimizes buffer sizes for more consistent measurements 
+4. **Server-side Timing**: Uses server-side timing for upload measurement when possible
 
 ## GitHub Container Registry
 
@@ -22,7 +30,7 @@ This project uses GitHub Actions to automatically build and publish Docker image
 docker pull ghcr.io/infobits-io/infobits-speedtest:latest
 
 # Run the container
-docker run -p 3000:3000 ghcr.io/infobits-io/infobits-speedtest:latest
+docker run -p 8080:8080 ghcr.io/infobits-io/infobits-speedtest:latest
 ```
 
 Or in a docker-compose.yml file:
@@ -34,7 +42,7 @@ services:
   speedtest:
     image: ghcr.io/infobits-io/infobits-speedtest:latest
     ports:
-      - "3000:3000"
+      - "8080:8080"
     restart: unless-stopped
 ```
 
@@ -53,7 +61,7 @@ services:
    docker-compose up -d
    ```
 
-3. Access the application at `http://localhost:3000`
+3. Access the application at `http://localhost:8080`
 
 ### Manual Docker Build
 
@@ -70,17 +78,16 @@ services:
 
 3. Run the container:
    ```bash
-   docker run -p 3000:3000 infobits-speedtest
+   docker run -p 8080:8080 infobits-speedtest
    ```
 
-4. Access the application at `http://localhost:3000`
+4. Access the application at `http://localhost:8080`
 
 ## Development Setup
 
 ### Prerequisites
 
-- Node.js 18.x or later
-- npm or yarn
+- Go 1.21 or later
 
 ### Installation
 
@@ -90,46 +97,61 @@ services:
    cd infobits-speedtest
    ```
 
-2. Install dependencies:
+2. Build the application:
    ```bash
-   npm install
-   # or
-   yarn install
+   go build -o speedtest .
    ```
 
-3. Start the development server:
+3. Run the application:
    ```bash
-   npm run dev
-   # or
-   yarn dev
+   ./speedtest
    ```
 
-4. Access the application at `http://localhost:3000`
+4. Access the application at `http://localhost:8080`
 
-## Building for Production
+## Makefile Commands
+
+The project includes a Makefile for common operations:
 
 ```bash
-npm run build
-npm start
+# Build the Go application
+make build
+
+# Run the application locally
+make run
+
+# Build the Docker image
+make docker-build
+
+# Run the Docker container
+make docker-run
+
+# Clean up build artifacts
+make clean
+
+# Show all available commands
+make help
 ```
 
-## CI/CD Workflow
+## Speed Test Algorithm
 
-This project includes a GitHub Actions workflow that:
-- Builds the Docker image on every push to main/master
-- Pushes the image to GitHub Container Registry
-- Creates version tags when you push version tags (e.g., v1.0.0)
+The speed test follows this process:
 
-The workflow file is located at `.github/workflows/docker-publish.yml`.
+1. **Latency Test**: 
+   - Sends multiple ping requests and calculates average latency
+   - Measures variation to calculate jitter
 
-## Tech Stack
+2. **Download Test**:
+   - Establishes initial connection and warms up TCP window
+   - Streams optimized data chunks with proper buffer sizes
+   - Uses statistical smoothing to eliminate outliers
+   - Takes median of measurements for final result
 
-- Next.js 14 with App Router
-- TypeScript
-- CSS Modules
-- React
-- Docker
-- GitHub Actions
+3. **Upload Test**:
+   - Sends data chunks in optimal sizes for TCP performance
+   - Measures server-side processing time when available
+   - Uses outlier elimination and statistical averaging
+   - Calculates median speed for final result
 
 ## License
 

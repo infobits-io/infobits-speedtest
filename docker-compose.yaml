@@ -2,7 +2,11 @@ version: '3'
 
 services:
   speedtest:
-    image: ghcr.io/infobits-io/infobits-speedtest:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: infobits-speedtest:latest
     ports:
-      - "3000:3000"
+      - "8080:8080"
     restart: unless-stopped
+    command: ["-port", "8080"]
