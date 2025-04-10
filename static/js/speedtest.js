@@ -1,8 +1,9 @@
 // Constants
 const PING_TESTS = 20; // Number of ping tests
-const MIN_TEST_DURATION = 12; // Minimum test duration in seconds
+const MIN_TEST_DURATION = 15; // Minimum test duration in seconds (increased)
 const MEASUREMENT_INTERVAL = 100; // Milliseconds between measurements
 const MAX_SPEED_CLASS = 10000; // Upper bound for speed classification (10 Gbps)
+const CRYPTO_BLOCK_SIZE = 65536; // Maximum bytes for crypto.getRandomValues() (browser security limit)
 
 // Dynamic constants that adjust based on connection speed
 let downloadFileSize = 25 * 1024 * 1024; // Initial 25MB - will adjust based on speed detection
@@ -70,15 +71,24 @@ async function startTest() {
 		const probeSpeed = await probeConnectionSpeed(updateProgress);
 		adjustTestParameters(probeSpeed);
 
+		// Small pause between tests
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
 		// Step 1: Measure latency
 		updateStatus(TestStatus.IDLE);
 		const latencyData = await measureLatency();
 		testResult.latency = latencyData.latency;
 		testResult.jitter = latencyData.jitter;
 
+		// Small pause between tests
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
 		// Step 2: Measure download speed
 		updateStatus(TestStatus.DOWNLOAD);
 		testResult.downloadSpeed = await measureDownloadSpeed(updateProgress);
+
+		// Small pause between tests
+		await new Promise((resolve) => setTimeout(resolve, 500));
 
 		// Step 3: Measure upload speed
 		updateStatus(TestStatus.UPLOAD);
@@ -94,6 +104,20 @@ async function startTest() {
 		isRunning = false;
 		updateUI();
 	}
+}
+
+// Generate a random array safely (respecting crypto API limits)
+function generateRandomData(size) {
+	const buffer = new Uint8Array(size);
+
+	// Fill in chunks to respect the browser's crypto API limits
+	for (let offset = 0; offset < buffer.length; offset += CRYPTO_BLOCK_SIZE) {
+		const length = Math.min(CRYPTO_BLOCK_SIZE, buffer.length - offset);
+		const chunk = buffer.subarray(offset, offset + length);
+		crypto.getRandomValues(chunk);
+	}
+
+	return buffer;
 }
 
 // Probe connection speed and optimize test parameters
@@ -171,27 +195,27 @@ function adjustTestParameters(speedMbps) {
 	if (speedMbps < 20) {
 		// Slow connections (<20 Mbps)
 		downloadFileSize = 10 * 1024 * 1024; // 10MB
-		uploadChunkSize = 512 * 1024; // 512KB
+		uploadChunkSize = 256 * 1024; // 256KB
 		uploadConcurrency = 1; // Single stream
 	} else if (speedMbps < 100) {
 		// Moderate (20-100 Mbps)
 		downloadFileSize = 25 * 1024 * 1024; // 25MB
-		uploadChunkSize = 1 * 1024 * 1024; // 1MB
+		uploadChunkSize = 512 * 1024; // 512KB
 		uploadConcurrency = 1; // Single stream
 	} else if (speedMbps < 500) {
 		// Fast (100-500 Mbps)
 		downloadFileSize = 50 * 1024 * 1024; // 50MB
-		uploadChunkSize = 2 * 1024 * 1024; // 2MB
+		uploadChunkSize = 1 * 1024 * 1024; // 1MB
 		uploadConcurrency = 2; // Two streams
 	} else if (speedMbps < 1000) {
 		// Very fast (500-1000 Mbps)
 		downloadFileSize = 100 * 1024 * 1024; // 100MB
-		uploadChunkSize = 4 * 1024 * 1024; // 4MB
+		uploadChunkSize = 2 * 1024 * 1024; // 2MB
 		uploadConcurrency = 3; // Three streams
 	} else {
 		// Ultra-fast (1+ Gbps)
 		downloadFileSize = 200 * 1024 * 1024; // 200MB
-		uploadChunkSize = 8 * 1024 * 1024; // 8MB
+		uploadChunkSize = 4 * 1024 * 1024; // 4MB (reduced from 8MB to avoid getRandomValues limits)
 		uploadConcurrency = 4; // Four streams
 	}
 
@@ -403,14 +427,19 @@ async function measureDownloadSpeed(onProgress) {
 					const currentSpeed =
 						(windowBytes * 8) / (1024 * 1024) / windowDuration; // Mbps
 
-					// Calculate progress percentage
-					const progress =
-						contentLength > 0
-							? Math.min(100, (totalBytes / contentLength) * 100)
-							: Math.min(
-									100,
-									((now - startTime) / (MIN_TEST_DURATION * 1000)) * 100
-							  );
+					// Artificially slow down the test for better visualization
+					const elapsedTime = now - startTime;
+					let progress;
+
+					if (contentLength > 0) {
+						progress = Math.min(100, (totalBytes / contentLength) * 100);
+					} else {
+						// Ensure the test lasts at least MIN_TEST_DURATION
+						progress = Math.min(
+							100,
+							(elapsedTime / (MIN_TEST_DURATION * 1000)) * 100
+						);
+					}
 
 					// Update display at regular intervals
 					if (now - lastUpdateTime >= MEASUREMENT_INTERVAL) {
@@ -427,6 +456,34 @@ async function measureDownloadSpeed(onProgress) {
 
 						lastUpdateTime = now;
 					}
+
+					// If file download completed too quickly, artificially slow down progress
+					// to ensure minimal test duration
+					if (done && elapsedTime < MIN_TEST_DURATION * 1000) {
+						const remainingTime = MIN_TEST_DURATION * 1000 - elapsedTime;
+						const startProgress = progress;
+						const startUpdateTime = now;
+
+						// Continue reporting progress while we wait
+						const updateInterval = setInterval(() => {
+							const currentTime = performance.now();
+							const timeRatio = (currentTime - startUpdateTime) / remainingTime;
+							const addedProgress = (100 - startProgress) * timeRatio;
+							const currentProgress = Math.min(
+								100,
+								startProgress + addedProgress
+							);
+
+							onProgress({ progress: currentProgress, currentSpeed });
+
+							if (currentProgress >= 100 || currentTime >= testEndTime) {
+								clearInterval(updateInterval);
+							}
+						}, 200);
+
+						// Wait for the remaining time
+						await new Promise((resolve) => setTimeout(resolve, remainingTime));
+					}
 				}
 			}
 		}
@@ -434,6 +491,14 @@ async function measureDownloadSpeed(onProgress) {
 		// Calculate final result from measurements
 		const endTime = performance.now();
 		const totalTimeSeconds = (endTime - startTime) / 1000;
+
+		// Ensure test ran for at least minimum duration
+		if (totalTimeSeconds < MIN_TEST_DURATION) {
+			// This shouldn't happen now with our progress logic, but just in case
+			await new Promise((resolve) =>
+				setTimeout(resolve, (MIN_TEST_DURATION - totalTimeSeconds) * 1000)
+			);
+		}
 
 		console.log(
 			`Download test: totalBytes=${totalBytes}, time=${totalTimeSeconds}s`
@@ -504,24 +569,35 @@ async function measureUploadSpeed(onProgress) {
 	console.log("Starting upload test");
 
 	try {
-		// Calculate how many chunks to upload based on connection type
+		// Calculate how many chunks to upload based on connection type and ensure minimum test duration
 		const uploadChunks =
 			connectionType === "slow"
-				? 5
-				: connectionType === "moderate"
 				? 8
-				: connectionType === "fast"
+				: connectionType === "moderate"
 				? 12
+				: connectionType === "fast"
+				? 16
 				: connectionType === "very-fast"
-				? 15
-				: 20;
+				? 20
+				: 25;
 
-		// Create array of chunks to upload
+		// Pre-generate random data for upload
+		console.log(
+			`Generating ${uploadChunks} chunks of ${
+				uploadChunkSize / 1024 / 1024
+			}MB data for upload`
+		);
 		const uploadData = [];
 		for (let i = 0; i < uploadChunks; i++) {
-			const chunk = new Uint8Array(uploadChunkSize);
-			crypto.getRandomValues(chunk);
+			// Create random data safely (respecting browser security limits)
+			const chunk = generateRandomData(uploadChunkSize);
 			uploadData.push(chunk);
+
+			// Update progress indicator during data generation
+			onProgress({
+				progress: (i / uploadChunks) * 15, // First 15% of progress is data generation
+				currentSpeed: 0,
+			});
 		}
 
 		console.log(
@@ -531,6 +607,7 @@ async function measureUploadSpeed(onProgress) {
 		);
 
 		const testEndTime = startTime + MIN_TEST_DURATION * 1000;
+		let progress = 15; // Start at 15% after data generation
 
 		// Process uploads in batches with controlled concurrency
 		for (let i = 0; i < uploadData.length; i += uploadConcurrency) {
@@ -647,21 +724,23 @@ async function measureUploadSpeed(onProgress) {
 				);
 			}
 
-			// Update progress
-			const now = performance.now();
-			const timeProgress = Math.min(
+			// Calculate progress - reserve 15% for data generation, 85% for upload
+			const uploadProgress = (i + batch.length) / uploadData.length;
+			progress = 15 + uploadProgress * 85;
+
+			// Ensure progress doesn't exceed time-based expectations
+			const elapsedTime = batchEndTime - startTime;
+			const timeBasedProgress = Math.min(
 				100,
-				((now - startTime) / (MIN_TEST_DURATION * 1000)) * 100
+				(elapsedTime / (MIN_TEST_DURATION * 1000)) * 100
 			);
-			const chunkProgress = Math.min(
-				100,
-				((i + batch.length) / uploadData.length) * 100
-			);
-			const progress = Math.max(timeProgress, chunkProgress);
+
+			// Use whichever is smaller to ensure test runs for minimum duration
+			progress = Math.min(progress, timeBasedProgress);
 
 			// Calculate current speed for display
 			if (
-				now - lastUpdateTime > MEASUREMENT_INTERVAL &&
+				batchEndTime - lastUpdateTime > MEASUREMENT_INTERVAL &&
 				speedMeasurements.length > 0
 			) {
 				// Use different window sizes based on connection type
@@ -680,7 +759,7 @@ async function measureUploadSpeed(onProgress) {
 					recentMeasurements.length;
 
 				onProgress({ progress, currentSpeed: avgSpeed });
-				lastUpdateTime = now;
+				lastUpdateTime = batchEndTime;
 			}
 
 			// Add a small delay between batches based on connection type
@@ -689,6 +768,45 @@ async function measureUploadSpeed(onProgress) {
 			} else if (connectionType !== "ultra-fast") {
 				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
+		}
+
+		// Ensure test runs for minimum duration
+		const currentTime = performance.now();
+		const elapsedTime = currentTime - startTime;
+
+		if (elapsedTime < MIN_TEST_DURATION * 1000) {
+			const remainingTime = MIN_TEST_DURATION * 1000 - elapsedTime;
+			console.log(
+				`Extending upload test by ${remainingTime}ms to meet minimum duration`
+			);
+
+			// Continue reporting progress while waiting
+			if (speedMeasurements.length > 0) {
+				const recentMeasurements = speedMeasurements.slice(-5);
+				const avgSpeed =
+					recentMeasurements.reduce((sum, s) => sum + s, 0) /
+					recentMeasurements.length;
+
+				// Gradually increase progress to 100%
+				const startProgress = progress;
+				const updateInterval = setInterval(() => {
+					const now = performance.now();
+					const ratio = (now - currentTime) / remainingTime;
+					progress = startProgress + (100 - startProgress) * ratio;
+
+					onProgress({
+						progress: Math.min(100, progress),
+						currentSpeed: avgSpeed,
+					});
+
+					if (progress >= 100 || now - startTime >= MIN_TEST_DURATION * 1000) {
+						clearInterval(updateInterval);
+					}
+				}, 200);
+			}
+
+			// Wait for remaining time
+			await new Promise((resolve) => setTimeout(resolve, remainingTime));
 		}
 
 		console.log(
