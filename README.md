@@ -1,36 +1,136 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# InfoBits Speed Test
 
-## Getting Started
+A modern internet speed test application built with Next.js, TypeScript, and CSS modules.
 
-First, run the development server:
+## Features
+
+- Download speed measurement
+- Upload speed measurement
+- Latency (ping) testing
+- Jitter measurement
+- Responsive design
+- Real-time progress indicators
+
+## GitHub Container Registry
+
+This project uses GitHub Actions to automatically build and publish Docker images to GitHub Container Registry.
+
+### Using the pre-built image
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Pull the latest image
+docker pull ghcr.io/infobits-io/infobits-speedtest:latest
+
+# Run the container
+docker run -p 3000:3000 ghcr.io/infobits-io/infobits-speedtest:latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Or in a docker-compose.yml file:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```yaml
+version: '3'
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+services:
+  speedtest:
+    image: ghcr.io/infobits-io/infobits-speedtest:latest
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+```
 
-## Learn More
+## Docker Setup (Local Build)
 
-To learn more about Next.js, take a look at the following resources:
+### Using Docker Compose
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd infobits-speedtest
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. Build and start the container:
+   ```bash
+   docker-compose up -d
+   ```
 
-## Deploy on Vercel
+3. Access the application at `http://localhost:3000`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Manual Docker Build
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd infobits-speedtest
+   ```
+
+2. Build the Docker image:
+   ```bash
+   docker build -t infobits-speedtest .
+   ```
+
+3. Run the container:
+   ```bash
+   docker run -p 3000:3000 infobits-speedtest
+   ```
+
+4. Access the application at `http://localhost:3000`
+
+## Development Setup
+
+### Prerequisites
+
+- Node.js 18.x or later
+- npm or yarn
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd infobits-speedtest
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+
+4. Access the application at `http://localhost:3000`
+
+## Building for Production
+
+```bash
+npm run build
+npm start
+```
+
+## CI/CD Workflow
+
+This project includes a GitHub Actions workflow that:
+- Builds the Docker image on every push to main/master
+- Pushes the image to GitHub Container Registry
+- Creates version tags when you push version tags (e.g., v1.0.0)
+
+The workflow file is located at `.github/workflows/docker-publish.yml`.
+
+## Tech Stack
+
+- Next.js 14 with App Router
+- TypeScript
+- CSS Modules
+- React
+- Docker
+- GitHub Actions
+
+## License
+
+MIT

@@ -1,0 +1,33 @@
+/* styles/ProgressBar.module.css */
+
+.progressBarContainer {
+	width: 100%;
+	margin: 8px 0;
+}
+
+.label {
+	font-size: 14px;
+	margin-bottom: 4px;
+	font-weight: 500;
+	color: #4b5563;
+}
+
+.progressBarTrack {
+	width: 100%;
+	background-color: #e5e7eb;
+	border-radius: 9999px;
+	overflow: hidden;
+}
+
+.progressBarFill {
+	height: 100%;
+	border-radius: 9999px;
+	transition: width 0.3s ease-in-out;
+}
+
+.percentage {
+	font-size: 12px;
+	margin-top: 2px;
+	text-align: right;
+	color: #6b7280;
+}

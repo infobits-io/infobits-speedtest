@@ -1,0 +1,8 @@
+version: '3'
+
+services:
+  speedtest:
+    image: ghcr.io/infobits-io/infobits-speedtest:latest
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

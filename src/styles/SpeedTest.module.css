@@ -1,0 +1,188 @@
+/* styles/SpeedTest.module.css */
+
+.container {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding: 20px;
+	min-height: 100vh;
+	background: linear-gradient(to bottom right, #f0f9ff, #e0f2fe);
+}
+
+.card {
+	width: 100%;
+	max-width: 800px;
+	padding: 32px;
+	background-color: white;
+	border-radius: 16px;
+	box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+		0 4px 6px -2px rgba(0, 0, 0, 0.05);
+	margin-bottom: 20px;
+}
+
+.title {
+	font-size: 28px;
+	font-weight: 700;
+	color: #111827;
+	text-align: center;
+	margin-bottom: 24px;
+}
+
+.speedMeter {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	margin: 20px 0 30px;
+}
+
+.gauge {
+	width: 200px;
+	height: 200px;
+	background-color: #f3f4f6;
+	border-radius: 50%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	position: relative;
+	box-shadow: inset 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+	overflow: hidden;
+}
+
+.gaugeValue {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	z-index: 10;
+}
+
+.speedValue {
+	font-size: 28px;
+	font-weight: 700;
+	color: #111827;
+}
+
+.speedUnit {
+	font-size: 16px;
+	font-weight: 500;
+	color: #6b7280;
+	margin-top: 4px;
+}
+
+.startIcon {
+	width: 80px;
+	height: 80px;
+	color: #2563eb;
+	animation: pulse 2s infinite;
+}
+
+.progressSection {
+	margin: 20px 0;
+}
+
+.statusLabel {
+	font-size: 16px;
+	font-weight: 500;
+	color: #111827;
+	text-align: center;
+	margin-bottom: 12px;
+}
+
+.currentSpeed {
+	font-size: 18px;
+	font-weight: 600;
+	color: #4b5563;
+	text-align: center;
+	margin-top: 8px;
+}
+
+.actionSection {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	margin-top: 32px;
+}
+
+.startButton {
+	padding: 12px 24px;
+	background-color: #2563eb;
+	color: white;
+	font-size: 16px;
+	font-weight: 600;
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: background-color 0.2s, transform 0.1s;
+}
+
+.startButton:hover {
+	background-color: #1d4ed8;
+	transform: translateY(-2px);
+}
+
+.startButton:active {
+	transform: translateY(0);
+}
+
+.startButton.disabled {
+	background-color: #93c5fd;
+	cursor: not-allowed;
+	transform: none;
+}
+
+.infoText {
+	margin-top: 16px;
+	font-size: 14px;
+	color: #6b7280;
+	text-align: center;
+}
+
+.footer {
+	margin-top: 40px;
+	text-align: center;
+	color: #6b7280;
+	font-size: 14px;
+}
+
+.footer p {
+	margin: 4px 0;
+}
+
+@keyframes pulse {
+	0% {
+		transform: scale(0.95);
+		opacity: 0.8;
+	}
+	70% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	100% {
+		transform: scale(0.95);
+		opacity: 0.8;
+	}
+}
+
+@media (max-width: 640px) {
+	.card {
+		padding: 20px;
+	}
+
+	.title {
+		font-size: 24px;
+	}
+
+	.gauge {
+		width: 160px;
+		height: 160px;
+	}
+
+	.speedValue {
+		font-size: 22px;
+	}
+
+	.startButton {
+		padding: 10px 20px;
+		font-size: 14px;
+	}
+}
