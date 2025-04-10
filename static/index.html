@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Infobits Speed Test</title>
+		<link rel="stylesheet" href="/static/css/styles.css" />
+		<link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
+	</head>
+	<body>
+		<div class="container">
+			<div class="card">
+				<h1 class="title">Infobits Speed Test</h1>
+
+				<div class="speed-meter">
+					<div class="gauge">
+						<div id="gauge-value" class="gauge-value">
+							<span id="speed-value" class="speed-value"></span>
+							<span id="speed-unit" class="speed-unit"></span>
+						</div>
+						<div id="start-icon" class="start-icon">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+								/>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+								/>
+							</svg>
+						</div>
+					</div>
+				</div>
+
+				<div
+					id="progress-section"
+					class="progress-section"
+					style="display: none"
+				>
+					<div id="status-label" class="status-label">Preparing Test...</div>
+					<div class="progress-bar-container">
+						<div id="progress-bar-track" class="progress-bar-track">
+							<div id="progress-bar-fill" class="progress-bar-fill"></div>
+						</div>
+					</div>
+					<div id="current-speed" class="current-speed"></div>
+				</div>
+
+				<div class="action-section">
+					<button id="start-button" class="start-button">
+						Start Speed Test
+					</button>
+					<div class="info-text">
+						<p id="info-text">
+							Click the button to test your internet connection speed.
+						</p>
+					</div>
+				</div>
+			</div>
+
+			<div id="result-container" class="result-container" style="display: none">
+				<h2 class="result-title">Test Results</h2>
+
+				<div class="result-grid">
+					<div class="result-card">
+						<div class="result-label">Download</div>
+						<div id="download-result" class="result-value excellent">
+							0.00 Mbps
+						</div>
+					</div>
+
+					<div class="result-card">
+						<div class="result-label">Upload</div>
+						<div id="upload-result" class="result-value excellent">
+							0.00 Mbps
+						</div>
+					</div>
+
+					<div class="result-card">
+						<div class="result-label">Latency</div>
+						<div id="latency-result" class="result-value excellent">0.0 ms</div>
+					</div>
+
+					<div class="result-card">
+						<div class="result-label">Jitter</div>
+						<div id="jitter-result" class="result-value excellent">0.0 ms</div>
+					</div>
+				</div>
+
+				<div class="info-text">
+					<p>
+						<strong>What do these results mean?</strong>
+					</p>
+					<p>
+						<strong>Download:</strong> Speed at which data is transferred from
+						the internet to your device.
+						<br />
+						<strong>Upload:</strong> Speed at which data is transferred from
+						your device to the internet.
+						<br />
+						<strong>Latency:</strong> Time it takes for data to travel from your
+						device to the server and back.
+						<br />
+						<strong>Jitter:</strong> Variation in latency over time.
+					</p>
+				</div>
+			</div>
+
+			<footer class="footer">
+				<p>Measures download, upload, latency, and jitter</p>
+			</footer>
+		</div>
+
+		<script src="/static/js/speedtest.js"></script>
+	</body>
+</html>
