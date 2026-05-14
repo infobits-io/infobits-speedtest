@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="robots" content="noindex" />
+    <title>Infobits Speedtest</title>
+
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <main class="st" id="st">
+      <div class="mobile-app-header" aria-hidden="true">
+        <span class="mobile-app-header__brand">Speedtest</span>
+        <span class="mobile-app-header__net" id="m-net">
+          <svg
+            class="net-icon"
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path d="M3.5 9.5a13 13 0 0 1 17 0" />
+            <path d="M6.5 13a9 9 0 0 1 11 0" />
+            <path d="M9.5 16.5a5 5 0 0 1 5 0" />
+            <circle cx="12" cy="20" r="0.6" fill="currentColor" stroke="none" />
+          </svg>
+          <span class="mobile-app-header__net-label" id="m-net-label">Wi-Fi</span>
+        </span>
+      </div>
+
+      <header class="st__header">
+        <div class="phase-pill" id="phase-pill" data-state="idle">
+          <span class="phase-pill__dot" aria-hidden="true"></span>
+          <span class="phase-pill__label" id="phase-label">Ready</span>
+        </div>
+        <div class="st__server" id="server"></div>
+      </header>
+
+      <section class="st__center" aria-live="polite">
+        <div class="dial-wrap" id="dial-wrap" data-active="false">
+          <svg
+            class="dial"
+            id="dial"
+            viewBox="0 0 420 327.6"
+            width="420"
+            height="327.6"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path id="dial-track" fill="none" stroke="#e8eaef" stroke-width="14" stroke-linecap="round" />
+            <path
+              id="dial-active"
+              class="dial__active"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="14"
+              stroke-linecap="round"
+            />
+            <g id="dial-ticks"></g>
+            <g id="dial-labels"></g>
+            <g id="dial-needle" class="dial__needle">
+              <line
+                id="dial-needle-line"
+                stroke="#0e1116"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+              <circle cx="210" cy="260.4" r="6" fill="#0e1116" />
+              <circle cx="210" cy="260.4" r="2.5" fill="#ffffff" />
+            </g>
+          </svg>
+        </div>
+
+        <div class="headline" id="headline-wrap" data-state="idle">
+          <div class="headline__num" id="headline-num">0.00</div>
+          <div class="headline__sub" id="headline-sub">Mbps</div>
+        </div>
+      </section>
+
+      <div class="mobile-meta" aria-hidden="true">
+        <div class="meta-item">
+          <span class="meta-item__label">Server</span>
+          <span class="meta-item__value" id="m-server">—</span>
+        </div>
+        <div class="meta-item meta-item--right">
+          <span class="meta-item__label">IP</span>
+          <span class="meta-item__value" id="m-ip">—</span>
+        </div>
+      </div>
+
+      <section class="tiles" id="tiles" data-visible="false" aria-label="Results">
+        <article class="tile" data-key="download" tabindex="0" aria-describedby="tip-download">
+          <span class="tile__hint" aria-hidden="true"></span>
+          <div class="tile__label">Download</div>
+          <div class="tile__val">
+            <span class="tile__num" id="t-download">0.00</span>
+            <span class="tile__unit">Mbps</span>
+          </div>
+          <div class="tile__tip" id="tip-download" role="tooltip">
+            <strong>Download</strong>
+            How fast data reaches you from the server. Higher is better.
+          </div>
+        </article>
+        <article class="tile" data-key="upload" tabindex="0" aria-describedby="tip-upload">
+          <span class="tile__hint" aria-hidden="true"></span>
+          <div class="tile__label">Upload</div>
+          <div class="tile__val">
+            <span class="tile__num" id="t-upload">0.00</span>
+            <span class="tile__unit">Mbps</span>
+          </div>
+          <div class="tile__tip" id="tip-upload" role="tooltip">
+            <strong>Upload</strong>
+            How fast data leaves your device for the server. Higher is better.
+          </div>
+        </article>
+        <article class="tile" data-key="ping" tabindex="0" aria-describedby="tip-ping">
+          <span class="tile__hint" aria-hidden="true"></span>
+          <div class="tile__label">Ping</div>
+          <div class="tile__val">
+            <span class="tile__num" id="t-ping">0.0</span>
+            <span class="tile__unit">ms</span>
+          </div>
+          <div class="tile__tip" id="tip-ping" role="tooltip">
+            <strong>Ping</strong>
+            Round-trip latency to the server, measured while idle. Lower is better.
+          </div>
+        </article>
+        <article class="tile" data-key="jitter" tabindex="0" aria-describedby="tip-jitter">
+          <span class="tile__hint" aria-hidden="true"></span>
+          <div class="tile__label">Jitter</div>
+          <div class="tile__val">
+            <span class="tile__num" id="t-jitter">0.0</span>
+            <span class="tile__unit">ms</span>
+          </div>
+          <div class="tile__tip" id="tip-jitter" role="tooltip">
+            <strong>Jitter</strong>
+            How much the ping varies between samples. Lower means a more stable connection.
+          </div>
+        </article>
+        <article class="tile" data-key="loss" tabindex="0" aria-describedby="tip-loss">
+          <span class="tile__hint" aria-hidden="true"></span>
+          <div class="tile__label">Loss</div>
+          <div class="tile__val">
+            <span class="tile__num" id="t-loss">0.0</span>
+            <span class="tile__unit">%</span>
+          </div>
+          <div class="tile__tip" id="tip-loss" role="tooltip">
+            <strong>Loss</strong>
+            Share of ping requests that failed or timed out. 0% is ideal.
+          </div>
+        </article>
+        <article class="tile" data-key="bufferbloat" tabindex="0" aria-describedby="tip-bufferbloat">
+          <span class="tile__hint" aria-hidden="true"></span>
+          <div class="tile__label">Buffer Bloat</div>
+          <div class="tile__val">
+            <span class="tile__num" id="t-bufferbloat">0.0</span>
+            <span class="tile__unit">ms</span>
+          </div>
+          <div class="tile__tip" id="tip-bufferbloat" role="tooltip">
+            <strong>Buffer Bloat</strong>
+            Extra latency added while the link is saturated, vs. idle ping. Lower is better.
+          </div>
+        </article>
+      </section>
+
+      <footer class="st__footer">
+        <div class="footer-block" id="footer-idle">
+          <button type="button" class="btn btn--primary" id="btn-start">Start test</button>
+          <div class="ip-line">
+            <span class="ip-line__label">Your IP</span>
+            <span class="ip-line__value" id="ip-idle">detecting…</span>
+          </div>
+        </div>
+
+        <div class="footer-block" id="footer-running" hidden>
+          <button type="button" class="btn btn--ghost" id="btn-cancel">Cancel</button>
+          <div class="ip-line ip-line--mute">
+            <span class="ip-line__value" id="ip-running">—</span>
+          </div>
+        </div>
+
+        <div class="footer-block" id="footer-summary" hidden>
+          <button type="button" class="btn btn--primary" id="btn-again">Test again</button>
+          <div class="ip-line">
+            <span class="ip-line__label">IP</span>
+            <span class="ip-line__value" id="ip-summary">—</span>
+          </div>
+        </div>
+      </footer>
+    </main>
+
+    <script src="/assets/speedtest.js" defer></script>
+  </body>
+</html>

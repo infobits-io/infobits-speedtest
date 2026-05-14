@@ -1,0 +1,18 @@
+services:
+  speedtest:
+    build: .
+    image: infobits-speedtest:latest
+    container_name: infobits-speedtest
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      SERVER_LOCATION: ""
+      TEST_DURATION_SEC: "10"
+      PARALLEL_STREAMS: "4"
+      MAX_DOWNLOAD_BYTES: "4294967296"
+      MAX_UPLOAD_BYTES: "4294967296"
+      LOG_FORMAT: "text"
+      LOG_LEVEL: "info"
+    restart: unless-stopped
+    read_only: true

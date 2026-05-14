@@ -1,0 +1,756 @@
+:root {
+  --bg: oklch(0.985 0.003 250);
+  --surface: #ffffff;
+  --ink: #0e1116;
+  --mute: #6b7280;
+  --line: #ececef;
+  --accent: oklch(0.62 0.17 245);
+  --accent-rgb: 37, 99, 235;
+  --track: #e8eaef;
+  --dim: #c8ccd2;
+  --soft-ink: #9aa0a8;
+
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 12px;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ─── App container ──────────────────────────────────────── */
+
+.st {
+  width: 100%;
+  max-width: 720px;
+  padding: 24px 56px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Mobile-only chrome: shown via media query below */
+.mobile-app-header,
+.mobile-meta {
+  display: none;
+}
+
+.st__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.st__server {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--mute);
+  letter-spacing: 0.4px;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+
+.st__server[data-visible="true"] {
+  opacity: 1;
+}
+
+.st__center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.st__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* ─── Phase pill ─────────────────────────────────────────── */
+
+.phase-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.2px;
+}
+
+.phase-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--dim);
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+
+.phase-pill[data-state="running"] .phase-pill__dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.15);
+  animation: stPulse 1.4s ease-in-out infinite;
+}
+
+.phase-pill[data-state="results"] .phase-pill__dot {
+  background: var(--ink);
+}
+
+.phase-pill__label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+/* ─── ArcDial ────────────────────────────────────────────── */
+
+.dial-wrap {
+  opacity: 0.55;
+  transition: opacity 500ms ease;
+}
+
+.dial-wrap[data-active="true"] {
+  opacity: 1;
+}
+
+.dial {
+  display: block;
+  overflow: visible;
+  width: 420px;
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-height: 880px) {
+  .dial {
+    width: 380px;
+  }
+}
+
+@media (max-height: 800px) {
+  .dial {
+    width: 340px;
+  }
+}
+
+.dial__active {
+  opacity: 0.25;
+  transition: opacity 400ms ease;
+}
+
+.dial-wrap[data-arc-active="true"] .dial__active {
+  opacity: 1;
+}
+
+.dial__needle {
+  transition: opacity 300ms ease;
+}
+
+/* ─── Headline ───────────────────────────────────────────── */
+
+.headline {
+  margin-top: 4px;
+  text-align: center;
+}
+
+.headline__num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 56px;
+  font-weight: 500;
+  letter-spacing: -1.8px;
+  line-height: 1;
+  color: var(--dim);
+  transition: color 400ms ease;
+}
+
+.headline[data-state="active"] .headline__num,
+.headline[data-state="results"] .headline__num {
+  color: var(--ink);
+}
+
+.headline__sub {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+/* ─── Metric tiles ───────────────────────────────────────── */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  margin-top: 16px;
+  margin-bottom: 4px;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition:
+    max-height 500ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 400ms ease,
+    transform 500ms cubic-bezier(0.4, 0, 0.2, 1),
+    margin 400ms ease;
+}
+
+/* Round individual corner tiles instead of clipping the grid, so popovers
+   can extend outside the .tiles container without being cut off. */
+.tile:first-child {
+  border-radius: 14px 0 0 14px;
+}
+.tile:last-child {
+  border-radius: 0 14px 14px 0;
+}
+
+.tiles[data-visible="true"] {
+  max-height: 180px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.tile {
+  background: var(--surface);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  position: relative;
+  min-height: 88px;
+}
+
+.tile__label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--mute);
+  line-height: 1.3;
+  min-height: 26px;
+}
+
+.tile__val {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tile__num {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--ink);
+  transition: color 300ms ease;
+}
+
+.tile__unit {
+  font-size: 10px;
+  color: var(--soft-ink);
+}
+
+.tile[data-active="true"] .tile__num {
+  color: var(--accent);
+}
+
+.tile[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+/* ── Tile interactivity hint + popover ────────────────────── */
+
+.tile {
+  cursor: help;
+  outline: none;
+}
+
+.tile__hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--soft-ink);
+  opacity: 0.5;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.tile:hover .tile__hint,
+.tile:focus .tile__hint {
+  opacity: 1;
+  transform: scale(1.4);
+}
+
+.tile:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tile__tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translate(-50%, 4px);
+  width: max-content;
+  max-width: 240px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 11px;
+  line-height: 1.45;
+  letter-spacing: 0.1px;
+  text-align: left;
+  box-shadow: 0 8px 24px rgba(14, 17, 22, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 10;
+}
+
+.tile__tip strong {
+  display: block;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  color: var(--soft-ink);
+}
+
+.tile__tip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+
+.tile:hover .tile__tip,
+.tile:focus .tile__tip,
+.tile:focus-within .tile__tip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* Edge-tiles: nudge the popover so it never clips the rounded grid. */
+.tile:first-child .tile__tip {
+  left: 0;
+  transform: translate(0, 4px);
+}
+.tile:first-child:hover .tile__tip,
+.tile:first-child:focus .tile__tip,
+.tile:first-child:focus-within .tile__tip {
+  transform: translate(0, 0);
+}
+.tile:first-child .tile__tip::after {
+  left: 24px;
+  transform: none;
+}
+
+.tile:last-child .tile__tip {
+  left: auto;
+  right: 0;
+  transform: translate(0, 4px);
+}
+.tile:last-child:hover .tile__tip,
+.tile:last-child:focus .tile__tip,
+.tile:last-child:focus-within .tile__tip {
+  transform: translate(0, 0);
+}
+.tile:last-child .tile__tip::after {
+  left: auto;
+  right: 24px;
+  transform: none;
+}
+
+/* ─── Footer ─────────────────────────────────────────────── */
+
+.footer-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: stFadeIn 400ms ease both;
+}
+
+.footer-block[hidden] {
+  display: none;
+}
+
+.btn {
+  cursor: pointer;
+  border: none;
+  transition: transform 150ms ease, opacity 200ms ease, background 200ms ease, color 200ms ease;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn--primary {
+  padding: 14px 32px;
+  border-radius: 999px;
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+.btn--primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn--ghost {
+  background: transparent;
+  border: none;
+  color: var(--mute);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  padding: 8px 16px;
+}
+
+.btn--ghost:hover {
+  color: var(--ink);
+}
+
+.ip-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+}
+
+.ip-line__label {
+  color: var(--soft-ink);
+}
+
+.ip-line__value {
+  color: var(--ink);
+}
+
+.ip-line--mute .ip-line__value {
+  color: var(--soft-ink);
+}
+
+/* ─── Keyframes ──────────────────────────────────────────── */
+
+@keyframes stPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.7;
+  }
+}
+
+@keyframes stFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Responsive ─────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+  body {
+    padding: 0;
+    place-items: stretch;
+  }
+
+  .st {
+    min-height: 100dvh;
+    padding: 16px 20px 24px;
+  }
+
+  /* App header bar (mobile only) */
+  .mobile-app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+  }
+
+  .mobile-app-header__brand {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  .mobile-app-header__net {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--mute);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+  }
+
+  .net-icon {
+    color: currentColor;
+  }
+
+  .mobile-app-header__net-label {
+    line-height: 1;
+  }
+
+  /* Recenter the phase pill, hide the desktop server text */
+  .st__header {
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+
+  .st__server {
+    display: none;
+  }
+
+  /* Compact dial + headline */
+  .dial {
+    width: min(320px, 78vw);
+  }
+
+  .headline {
+    margin-top: 0;
+  }
+
+  .headline__num {
+    font-size: 44px;
+    letter-spacing: -1.4px;
+  }
+
+  .headline__sub {
+    margin-top: 6px;
+    font-size: 11px;
+    letter-spacing: 1.6px;
+  }
+
+  /* Server + IP meta row (mobile only) — pushed to the bottom by margin-top:auto so the dial stays anchored near the top. */
+  .mobile-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-top: auto;
+    padding: 0 2px;
+  }
+
+  .meta-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .meta-item__label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+
+  .meta-item__value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink);
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Tiles: 3 + 3 wrap */
+  .tiles {
+    grid-template-columns: repeat(3, 1fr);
+    margin-top: 12px;
+    margin-bottom: 0;
+  }
+
+  .tiles[data-visible="true"] {
+    max-height: 320px;
+  }
+
+  /* Reset desktop corner rounding, then re-round the four grid corners. */
+  .tile:first-child,
+  .tile:last-child {
+    border-radius: 0;
+  }
+  .tile:nth-child(1) {
+    border-radius: 14px 0 0 0;
+  }
+  .tile:nth-child(3) {
+    border-radius: 0 14px 0 0;
+  }
+  .tile:nth-child(4) {
+    border-radius: 0 0 0 14px;
+  }
+  .tile:nth-child(6) {
+    border-radius: 0 0 14px 14px;
+  }
+
+  /* Reset desktop edge popover rules so they don't conflict with the mobile grid. */
+  .tile:first-child .tile__tip,
+  .tile:last-child .tile__tip {
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, 4px);
+  }
+  .tile:first-child:hover .tile__tip,
+  .tile:first-child:focus .tile__tip,
+  .tile:first-child:focus-within .tile__tip,
+  .tile:last-child:hover .tile__tip,
+  .tile:last-child:focus .tile__tip,
+  .tile:last-child:focus-within .tile__tip {
+    transform: translate(-50%, 0);
+  }
+  .tile:first-child .tile__tip::after,
+  .tile:last-child .tile__tip::after {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
+
+  /* Left-column tiles (1 and 4 in a 3-col grid) anchor popovers to their left edge. */
+  .tile:nth-child(3n+1) .tile__tip {
+    left: 0;
+    right: auto;
+    transform: translate(0, 4px);
+  }
+  .tile:nth-child(3n+1):hover .tile__tip,
+  .tile:nth-child(3n+1):focus .tile__tip,
+  .tile:nth-child(3n+1):focus-within .tile__tip {
+    transform: translate(0, 0);
+  }
+  .tile:nth-child(3n+1) .tile__tip::after {
+    left: 24px;
+    right: auto;
+    transform: none;
+  }
+
+  /* Right-column tiles (3 and 6) anchor popovers to their right edge. */
+  .tile:nth-child(3n) .tile__tip {
+    left: auto;
+    right: 0;
+    transform: translate(0, 4px);
+  }
+  .tile:nth-child(3n):hover .tile__tip,
+  .tile:nth-child(3n):focus .tile__tip,
+  .tile:nth-child(3n):focus-within .tile__tip {
+    transform: translate(0, 0);
+  }
+  .tile:nth-child(3n) .tile__tip::after {
+    left: auto;
+    right: 24px;
+    transform: none;
+  }
+
+  .tile {
+    padding: 12px 10px;
+  }
+
+  .tile__num {
+    font-size: 18px;
+  }
+
+  /* Dial sits near the top; meta + button get pushed to the bottom via .mobile-meta's margin-top:auto. */
+  .st__center {
+    flex: 0 0 auto;
+    margin-top: 8px;
+  }
+
+  .st__footer {
+    padding-top: 16px;
+    padding-bottom: 8px;
+    min-height: 0;
+    gap: 12px;
+  }
+
+  .footer-block {
+    width: 100%;
+    gap: 12px;
+  }
+
+  .footer-block .btn--primary {
+    width: 100%;
+    max-width: 360px;
+    padding: 18px 32px;
+    font-size: 14px;
+  }
+
+  /* On mobile, hide the redundant IP lines under the button — the
+     SERVER/IP meta row above already shows them. */
+  .ip-line {
+    display: none;
+  }
+}

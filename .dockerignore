@@ -1,0 +1,10 @@
+.git
+.gitignore
+.golangci.yml
+.vscode
+.idea
+.DS_Store
+README.md
+*.md
+node_modules
+dist
